@@ -19,11 +19,13 @@ if ($acao === 'listar') {
 
 if ($acao === 'salvar') {
     exigirLogin();
+    verificarCSRF();
     $ano = intval($input['ano'] ?? date('Y'));
     $meses = $input['meses'] ?? [];
     if (!is_array($meses) || count($meses) !== 12) jsonResponse(['sucesso' => false, 'erro' => 'Dados invalidos'], 400);
     $stmt = $db->prepare("INSERT INTO cashback_mensal (ano, mes, percentual) VALUES (?, ?, ?) ON CONFLICT (ano, mes) DO UPDATE SET percentual = EXCLUDED.percentual");
     foreach ($meses as $i => $pct) $stmt->execute([$ano, $i + 1, max(0, min(100, floatval($pct)))]);
+    registrarAuditoria('config_cashback', "Percentuais de cashback alterados para $ano");
     jsonResponse(['sucesso' => true, 'mensagem' => 'Configuracoes salvas com sucesso']);
 }
 

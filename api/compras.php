@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/../includes/db.php';
+require_once __DIR__.'/../includes/whatsapp.php';
 exigirLogin();
 
 $input = getInput();
@@ -7,6 +8,7 @@ $acao = $input['acao'] ?? $_GET['acao'] ?? '';
 $db = getDB();
 
 if ($acao === 'registrar') {
+    verificarCSRF();
     $telefone = preg_replace('/\D/', '', $input['telefone'] ?? '');
     $valor = floatval($input['valor'] ?? 0);
     if (strlen($telefone) < 10) jsonResponse(['sucesso' => false, 'erro' => 'Telefone invalido'], 400);
@@ -21,11 +23,17 @@ if ($acao === 'registrar') {
     $cashbackValor = round($valor * ($pct / 100), 2);
     $stmt = $db->prepare("INSERT INTO compras (cliente_id, valor, cashback_percentual, cashback_valor) VALUES (?, ?, ?, ?)");
     $stmt->execute([$cliente['id'], $valor, $pct, $cashbackValor]);
+    registrarAuditoria('compra', "Compra R$ " . number_format($valor, 2, ',', '.') . " - Cashback R$ " . number_format($cashbackValor, 2, ',', '.'), 'cliente', $cliente['id']);
+
+    // Notificar cliente via WhatsApp
+    $info = calcularCreditoCliente($cliente['id']);
+    $whatsappResult = notificarCashbackCompra($telefone, $cliente['nome'], $valor, $cashbackValor, $pct, $info['credito_disponivel']);
 
     jsonResponse([
         'sucesso' => true,
         'mensagem' => 'Compra registrada com sucesso',
-        'compra' => ['valor' => $valor, 'cashback_percentual' => $pct, 'cashback_valor' => $cashbackValor, 'cliente_nome' => $cliente['nome']]
+        'compra' => ['valor' => $valor, 'cashback_percentual' => $pct, 'cashback_valor' => $cashbackValor, 'cliente_nome' => $cliente['nome']],
+        'whatsapp_enviado' => $whatsappResult['sucesso'] ?? false,
     ]);
 }
 
@@ -38,17 +46,42 @@ if ($acao === 'preview') {
 }
 
 if ($acao === 'estornar') {
+    verificarCSRF();
     $compraId = intval($input['compra_id'] ?? 0);
     $motivo = trim($input['motivo'] ?? 'Estorno administrativo');
     if (!$compraId) jsonResponse(['sucesso' => false, 'erro' => 'ID da compra invalido'], 400);
 
-    $stmt = $db->prepare("SELECT * FROM compras WHERE id = ? AND estornada = FALSE");
-    $stmt->execute([$compraId]);
-    $compra = $stmt->fetch();
-    if (!$compra) jsonResponse(['sucesso' => false, 'erro' => 'Compra nao encontrada ou ja estornada'], 404);
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare("SELECT * FROM compras WHERE id = ? AND estornada = FALSE FOR UPDATE");
+        $stmt->execute([$compraId]);
+        $compra = $stmt->fetch();
+        if (!$compra) {
+            $db->rollBack();
+            jsonResponse(['sucesso' => false, 'erro' => 'Compra nao encontrada ou ja estornada'], 404);
+        }
 
-    $db->prepare("UPDATE compras SET estornada = TRUE, data_estorno = NOW(), motivo_estorno = ? WHERE id = ?")->execute([$motivo, $compraId]);
-    jsonResponse(['sucesso' => true, 'mensagem' => 'Compra estornada com sucesso']);
+        // Verificar se o cashback desta compra ja foi resgatado
+        $info = calcularCreditoCliente($compra['cliente_id']);
+        $cashbackCompra = floatval($compra['cashback_valor']);
+
+        // Se estornar esta compra reduziria o credito abaixo do ja resgatado, bloquear
+        if ($info['credito_disponivel'] < $cashbackCompra && $info['total_resgatado'] > 0) {
+            $db->rollBack();
+            jsonResponse([
+                'sucesso' => false,
+                'erro' => 'Nao e possivel estornar: o cashback desta compra (R$ ' . number_format($cashbackCompra, 2, ',', '.') . ') ja foi parcialmente resgatado. Credito disponivel atual: R$ ' . number_format($info['credito_disponivel'], 2, ',', '.')
+            ], 400);
+        }
+
+        $db->prepare("UPDATE compras SET estornada = TRUE, data_estorno = NOW(), motivo_estorno = ? WHERE id = ?")->execute([$motivo, $compraId]);
+        registrarAuditoria('estorno', "Compra #$compraId estornada. Motivo: $motivo. Valor: R$ " . number_format(floatval($compra['valor']), 2, ',', '.'), 'cliente', $compra['cliente_id']);
+        $db->commit();
+        jsonResponse(['sucesso' => true, 'mensagem' => 'Compra estornada com sucesso']);
+    } catch (Exception $e) {
+        $db->rollBack();
+        jsonResponse(['sucesso' => false, 'erro' => 'Erro ao processar estorno'], 500);
+    }
 }
 
 if ($acao === 'historico') {
@@ -81,20 +114,47 @@ if ($acao === 'ultimas') {
 }
 
 if ($acao === 'dashboard') {
+    // Dashboard consolidado em uma unica query com CTEs
     $mesAtual = intval(date('n'));
     $anoAtual = intval(date('Y'));
-    $stats = [];
-    $stats['total_clientes'] = $db->query("SELECT COUNT(*) as t FROM clientes WHERE ativo = TRUE")->fetch()['t'];
-    $row = $db->query("SELECT COUNT(*) as t, COALESCE(SUM(valor),0) as v FROM compras WHERE estornada = FALSE")->fetch();
-    $stats['total_compras'] = $row['t'];
-    $stats['total_vendas'] = floatval($row['v']);
-    $stmt = $db->prepare("SELECT COALESCE(SUM(valor),0) as t FROM compras WHERE estornada = FALSE AND EXTRACT(MONTH FROM data_compra) = ? AND EXTRACT(YEAR FROM data_compra) = ?");
+
+    $stmt = $db->prepare("
+        WITH stats_clientes AS (
+            SELECT COUNT(*) as total_clientes FROM clientes WHERE ativo = TRUE
+        ),
+        stats_compras AS (
+            SELECT COUNT(*) as total_compras,
+                   COALESCE(SUM(valor),0) as total_vendas,
+                   COALESCE(SUM(cashback_valor),0) as total_cashback_gerado
+            FROM compras WHERE estornada = FALSE
+        ),
+        stats_mes AS (
+            SELECT COALESCE(SUM(valor),0) as vendas_mes
+            FROM compras
+            WHERE estornada = FALSE
+              AND EXTRACT(MONTH FROM data_compra) = ?
+              AND EXTRACT(YEAR FROM data_compra) = ?
+        ),
+        stats_resgates AS (
+            SELECT COALESCE(SUM(valor),0) as total_resgatado
+            FROM resgates WHERE estornado = FALSE
+        )
+        SELECT c.total_clientes, p.total_compras, p.total_vendas,
+               m.vendas_mes, p.total_cashback_gerado, r.total_resgatado
+        FROM stats_clientes c, stats_compras p, stats_mes m, stats_resgates r
+    ");
     $stmt->execute([$mesAtual, $anoAtual]);
-    $stats['vendas_mes'] = floatval($stmt->fetch()['t']);
-    $stats['cashback_atual'] = getCashbackAtual();
-    $stats['total_cashback_gerado'] = floatval($db->query("SELECT COALESCE(SUM(cashback_valor),0) as t FROM compras WHERE estornada = FALSE")->fetch()['t']);
-    $stats['total_resgatado'] = floatval($db->query("SELECT COALESCE(SUM(valor),0) as t FROM resgates WHERE estornado = FALSE")->fetch()['t']);
-    jsonResponse($stats);
+    $row = $stmt->fetch();
+
+    jsonResponse([
+        'total_clientes' => intval($row['total_clientes']),
+        'total_compras' => intval($row['total_compras']),
+        'total_vendas' => floatval($row['total_vendas']),
+        'vendas_mes' => floatval($row['vendas_mes']),
+        'cashback_atual' => getCashbackAtual(),
+        'total_cashback_gerado' => floatval($row['total_cashback_gerado']),
+        'total_resgatado' => floatval($row['total_resgatado'])
+    ]);
 }
 
 if ($acao === 'relatorio_mensal') {

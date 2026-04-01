@@ -9,7 +9,21 @@ define('SENHA_PADRAO', 'saobento2026');
 define('MAX_TENTATIVAS_LOGIN', 5);
 define('BLOQUEIO_MINUTOS', 15);
 
+// ===== SESSION SECURITY =====
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_secure', 1);
+ini_set('session.cookie_samesite', 'Strict');
+ini_set('session.use_strict_mode', 1);
+ini_set('session.use_only_cookies', 1);
 session_start();
+
+// ===== HTTPS REDIRECT (Railway proxy) =====
+if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'http') {
+    $host = $_SERVER['HTTP_HOST'];
+    $uri = $_SERVER['REQUEST_URI'];
+    header("Location: https://$host$uri", true, 301);
+    exit;
+}
 
 function getDB() {
     static $pdo = null;
@@ -17,7 +31,6 @@ function getDB() {
         try {
             $databaseUrl = getenv('DATABASE_URL');
             if ($databaseUrl) {
-                // Railway fornece DATABASE_URL automaticamente
                 $parsed = parse_url($databaseUrl);
                 $host = $parsed['host'];
                 $port = $parsed['port'] ?? 5432;
@@ -26,7 +39,6 @@ function getDB() {
                 $pass = $parsed['pass'];
                 $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=require";
             } else {
-                // Desenvolvimento local
                 $host = getenv('DB_HOST') ?: 'localhost';
                 $port = getenv('DB_PORT') ?: '5432';
                 $dbname = getenv('DB_NAME') ?: 'clube_saobento';
@@ -60,6 +72,22 @@ function getInput() {
     return json_decode($json, true) ?? [];
 }
 
+// ===== CSRF PROTECTION =====
+function gerarTokenCSRF() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function verificarCSRF() {
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $token = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
+        jsonResponse(['erro' => 'Token de seguranca invalido. Recarregue a pagina.'], 403);
+    }
+}
+
 // ===== AUTENTICACAO =====
 function exigirLogin() {
     if (empty($_SESSION['logado']) || $_SESSION['logado'] !== true) {
@@ -68,6 +96,20 @@ function exigirLogin() {
 }
 
 function getClientIP() {
+    // Railway e outros proxies enviam o IP real via X-Forwarded-For
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+        $ip = trim($ips[0]);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $ip;
+        }
+    }
+    if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
+        $ip = trim($_SERVER['HTTP_X_REAL_IP']);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $ip;
+        }
+    }
     return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
@@ -103,6 +145,27 @@ function getSenha() {
     return $hash;
 }
 
+// ===== VALIDACAO CPF =====
+function validarCPF($cpf) {
+    $cpf = preg_replace('/\D/', '', $cpf);
+    if (strlen($cpf) !== 11) return false;
+    // Rejeitar sequencias repetidas (111.111.111-11, etc)
+    if (preg_match('/^(\d)\1{10}$/', $cpf)) return false;
+    // Calcular primeiro digito verificador
+    $soma = 0;
+    for ($i = 0; $i < 9; $i++) $soma += intval($cpf[$i]) * (10 - $i);
+    $resto = $soma % 11;
+    $d1 = ($resto < 2) ? 0 : 11 - $resto;
+    if (intval($cpf[9]) !== $d1) return false;
+    // Calcular segundo digito verificador
+    $soma = 0;
+    for ($i = 0; $i < 10; $i++) $soma += intval($cpf[$i]) * (11 - $i);
+    $resto = $soma % 11;
+    $d2 = ($resto < 2) ? 0 : 11 - $resto;
+    if (intval($cpf[10]) !== $d2) return false;
+    return true;
+}
+
 // ===== CASHBACK =====
 function getCashbackPercentual($ano, $mes) {
     $db = getDB();
@@ -116,52 +179,81 @@ function getCashbackAtual() {
     return getCashbackPercentual(date('Y'), date('n'));
 }
 
-// ===== CREDITO =====
+// ===== CREDITO (com expiracao por compra individual) =====
 function calcularCreditoCliente($clienteId) {
     $db = getDB();
-    $stmt = $db->prepare("SELECT COALESCE(SUM(cashback_valor),0) as total_cashback, COALESCE(SUM(valor),0) as total_compras, COUNT(*) as num_compras, MAX(data_compra) as ultima_compra FROM compras WHERE cliente_id = ? AND estornada = FALSE");
+    $limite = date('Y-m-d H:i:s', strtotime('-' . EXPIRACAO_MESES . ' months'));
+
+    // Cashback de compras NAO expiradas (individual por compra)
+    $stmt = $db->prepare("
+        SELECT COALESCE(SUM(cashback_valor),0) as cashback_valido
+        FROM compras
+        WHERE cliente_id = ? AND estornada = FALSE AND data_compra >= ?
+    ");
+    $stmt->execute([$clienteId, $limite]);
+    $cashbackValido = floatval($stmt->fetch()['cashback_valido']);
+
+    // Cashback de compras expiradas
+    $stmt = $db->prepare("
+        SELECT COALESCE(SUM(cashback_valor),0) as cashback_expirado
+        FROM compras
+        WHERE cliente_id = ? AND estornada = FALSE AND data_compra < ?
+    ");
+    $stmt->execute([$clienteId, $limite]);
+    $cashbackExpirado = floatval($stmt->fetch()['cashback_expirado']);
+
+    // Totais gerais
+    $stmt = $db->prepare("
+        SELECT COALESCE(SUM(valor),0) as total_compras,
+               COALESCE(SUM(cashback_valor),0) as total_cashback,
+               COUNT(*) as num_compras,
+               MAX(data_compra) as ultima_compra
+        FROM compras WHERE cliente_id = ? AND estornada = FALSE
+    ");
     $stmt->execute([$clienteId]);
     $compras = $stmt->fetch();
 
     $stmt = $db->prepare("SELECT COALESCE(SUM(valor),0) as total_resgatado FROM resgates WHERE cliente_id = ? AND estornado = FALSE");
     $stmt->execute([$clienteId]);
-    $resgates = $stmt->fetch();
+    $totalResgatado = floatval($stmt->fetch()['total_resgatado']);
 
-    $creditoTotal = floatval($compras['total_cashback']);
-    $totalResgatado = floatval($resgates['total_resgatado']);
-    $creditoDisponivel = max(0, $creditoTotal - $totalResgatado);
-
-    $expirado = false;
-    if ($compras['ultima_compra']) {
-        $limite = date('Y-m-d H:i:s', strtotime('-' . EXPIRACAO_MESES . ' months'));
-        if ($compras['ultima_compra'] < $limite) {
-            $expirado = true;
-            $creditoDisponivel = 0;
-        }
-    }
+    // Credito disponivel = cashback valido - total resgatado (nunca negativo)
+    $creditoDisponivel = max(0, $cashbackValido - $totalResgatado);
 
     return [
         'total_compras' => floatval($compras['total_compras']),
         'num_compras' => intval($compras['num_compras']),
-        'cashback_total' => $creditoTotal,
+        'cashback_total' => floatval($compras['total_cashback']),
+        'cashback_valido' => $cashbackValido,
+        'cashback_expirado' => $cashbackExpirado,
         'total_resgatado' => $totalResgatado,
         'credito_disponivel' => $creditoDisponivel,
         'ultima_compra' => $compras['ultima_compra'],
-        'expirado' => $expirado
+        'expirado' => ($cashbackValido <= 0 && floatval($compras['total_cashback']) > 0)
     ];
 }
 
-// Inicializar banco
-function inicializarBanco() {
+// ===== AUDIT TRAIL =====
+function registrarAuditoria($acao, $detalhes = '', $entidadeTipo = null, $entidadeId = null) {
     $db = getDB();
-    // Executar schema se tabelas nao existem
+    $ip = getClientIP();
+    $stmt = $db->prepare("INSERT INTO auditoria (acao, detalhes, entidade_tipo, entidade_id, ip) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$acao, $detalhes, $entidadeTipo, $entidadeId, $ip]);
+}
+
+// ===== INICIALIZACAO =====
+function inicializarBanco() {
+    static $inicializado = false;
+    if ($inicializado) return;
+    $inicializado = true;
+
+    $db = getDB();
     try {
         $db->query("SELECT 1 FROM configuracoes LIMIT 1");
     } catch (PDOException $e) {
         $sql = file_get_contents(__DIR__ . '/../database.sql');
         $db->exec($sql);
     }
-    // Inserir senha padrao se nao existe
     $stmt = $db->query("SELECT COUNT(*) as c FROM configuracoes WHERE chave = 'senha_acesso'");
     if ($stmt->fetch()['c'] == 0) {
         $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);

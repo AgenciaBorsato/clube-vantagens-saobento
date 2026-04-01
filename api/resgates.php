@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/../includes/db.php';
+require_once __DIR__.'/../includes/whatsapp.php';
 exigirLogin();
 
 $input = getInput();
@@ -7,15 +8,54 @@ $acao = $input['acao'] ?? $_GET['acao'] ?? '';
 $db = getDB();
 
 if ($acao === 'resgatar') {
+    verificarCSRF();
     $clienteId = intval($input['cliente_id'] ?? 0);
     $valor = floatval($input['valor'] ?? 0);
     if (!$clienteId) jsonResponse(['sucesso' => false, 'erro' => 'Cliente invalido'], 400);
     if ($valor <= 0) jsonResponse(['sucesso' => false, 'erro' => 'Valor invalido'], 400);
-    $info = calcularCreditoCliente($clienteId);
-    if ($info['expirado']) jsonResponse(['sucesso' => false, 'erro' => 'Creditos expirados'], 400);
-    if ($valor > $info['credito_disponivel']) jsonResponse(['sucesso' => false, 'erro' => 'Valor maior que o credito disponivel'], 400);
-    $db->prepare("INSERT INTO resgates (cliente_id, valor) VALUES (?, ?)")->execute([$clienteId, $valor]);
-    jsonResponse(['sucesso' => true, 'mensagem' => 'Resgate realizado com sucesso']);
+
+    // Transacao com lock para evitar race condition
+    $db->beginTransaction();
+    try {
+        // Lock nas compras do cliente para garantir consistencia
+        $limite = date('Y-m-d H:i:s', strtotime('-' . EXPIRACAO_MESES . ' months'));
+        $stmt = $db->prepare("SELECT COALESCE(SUM(cashback_valor),0) as cashback_valido FROM compras WHERE cliente_id = ? AND estornada = FALSE AND data_compra >= ? FOR UPDATE");
+        $stmt->execute([$clienteId, $limite]);
+        $cashbackValido = floatval($stmt->fetch()['cashback_valido']);
+
+        $stmt = $db->prepare("SELECT COALESCE(SUM(valor),0) as total_resgatado FROM resgates WHERE cliente_id = ? AND estornado = FALSE FOR UPDATE");
+        $stmt->execute([$clienteId]);
+        $totalResgatado = floatval($stmt->fetch()['total_resgatado']);
+
+        $creditoDisponivel = max(0, $cashbackValido - $totalResgatado);
+
+        if ($cashbackValido <= 0) {
+            $db->rollBack();
+            jsonResponse(['sucesso' => false, 'erro' => 'Creditos expirados'], 400);
+        }
+        if ($valor > $creditoDisponivel) {
+            $db->rollBack();
+            jsonResponse(['sucesso' => false, 'erro' => 'Valor maior que o credito disponivel (R$ ' . number_format($creditoDisponivel, 2, ',', '.') . ')'], 400);
+        }
+
+        $db->prepare("INSERT INTO resgates (cliente_id, valor) VALUES (?, ?)")->execute([$clienteId, $valor]);
+        registrarAuditoria('resgate', "Resgate de R$ " . number_format($valor, 2, ',', '.'), 'cliente', $clienteId);
+        $db->commit();
+
+        // Notificar cliente via WhatsApp
+        $stmtCl = $db->prepare("SELECT nome, telefone FROM clientes WHERE id = ?");
+        $stmtCl->execute([$clienteId]);
+        $cl = $stmtCl->fetch();
+        if ($cl) {
+            $infoAtual = calcularCreditoCliente($clienteId);
+            notificarResgate($cl['telefone'], $cl['nome'], $valor, $infoAtual['credito_disponivel']);
+        }
+
+        jsonResponse(['sucesso' => true, 'mensagem' => 'Resgate realizado com sucesso']);
+    } catch (Exception $e) {
+        $db->rollBack();
+        jsonResponse(['sucesso' => false, 'erro' => 'Erro ao processar resgate'], 500);
+    }
 }
 
 if ($acao === 'historico') {

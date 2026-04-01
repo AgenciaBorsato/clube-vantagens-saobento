@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS compras (
 
 CREATE INDEX IF NOT EXISTS idx_compras_cliente ON compras(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_compras_data ON compras(data_compra);
+CREATE INDEX IF NOT EXISTS idx_compras_cliente_data ON compras(cliente_id, data_compra);
 
 CREATE TABLE IF NOT EXISTS resgates (
   id SERIAL PRIMARY KEY,
@@ -64,3 +65,18 @@ CREATE TABLE IF NOT EXISTS login_tentativas (
 
 CREATE INDEX IF NOT EXISTS idx_login_ip ON login_tentativas(ip);
 CREATE INDEX IF NOT EXISTS idx_login_tempo ON login_tentativas(tentativa_em);
+
+-- Tabela de auditoria
+CREATE TABLE IF NOT EXISTS auditoria (
+  id SERIAL PRIMARY KEY,
+  acao VARCHAR(100) NOT NULL,
+  detalhes TEXT,
+  entidade_tipo VARCHAR(50),
+  entidade_id INT,
+  ip VARCHAR(45),
+  criado_em TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auditoria_acao ON auditoria(acao);
+CREATE INDEX IF NOT EXISTS idx_auditoria_entidade ON auditoria(entidade_tipo, entidade_id);
+CREATE INDEX IF NOT EXISTS idx_auditoria_data ON auditoria(criado_em);
