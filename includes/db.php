@@ -37,7 +37,7 @@ function getDB() {
                 $dbname = ltrim($parsed['path'], '/');
                 $user = $parsed['user'];
                 $pass = $parsed['pass'];
-                $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=require";
+                $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
             } else {
                 $host = getenv('DB_HOST') ?: 'localhost';
                 $port = getenv('DB_PORT') ?: '5432';
