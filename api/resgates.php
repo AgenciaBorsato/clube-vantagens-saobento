@@ -1,4 +1,8 @@
 <?php
+// ============================================================
+// BipCash SaaS - API Resgates Multi-Tenant
+// Todas as queries filtradas por farmacia_id
+// ============================================================
 require_once __DIR__.'/../includes/db.php';
 require_once __DIR__.'/../includes/whatsapp.php';
 exigirLogin();
@@ -6,6 +10,7 @@ exigirLogin();
 $input = getInput();
 $acao = $input['acao'] ?? $_GET['acao'] ?? '';
 $db = getDB();
+$farmaciaId = getFarmaciaId();
 
 if ($acao === 'resgatar') {
     verificarCSRF();
@@ -13,6 +18,11 @@ if ($acao === 'resgatar') {
     $valor = floatval($input['valor'] ?? 0);
     if (!$clienteId) jsonResponse(['sucesso' => false, 'erro' => 'Cliente invalido'], 400);
     if ($valor <= 0) jsonResponse(['sucesso' => false, 'erro' => 'Valor invalido'], 400);
+
+    // Verificar que o cliente pertence a esta farmacia
+    $stmtCl = $db->prepare("SELECT id FROM clientes WHERE id = ? AND farmacia_id = ? AND ativo = TRUE");
+    $stmtCl->execute([$clienteId, $farmaciaId]);
+    if (!$stmtCl->fetch()) jsonResponse(['sucesso' => false, 'erro' => 'Cliente nao encontrado nesta farmacia'], 404);
 
     // Transacao com lock para evitar race condition
     $db->beginTransaction();
@@ -38,7 +48,7 @@ if ($acao === 'resgatar') {
             jsonResponse(['sucesso' => false, 'erro' => 'Valor maior que o credito disponivel (R$ ' . number_format($creditoDisponivel, 2, ',', '.') . ')'], 400);
         }
 
-        $db->prepare("INSERT INTO resgates (cliente_id, valor) VALUES (?, ?)")->execute([$clienteId, $valor]);
+        $db->prepare("INSERT INTO resgates (farmacia_id, cliente_id, valor) VALUES (?, ?, ?)")->execute([$farmaciaId, $clienteId, $valor]);
         registrarAuditoria('resgate', "Resgate de R$ " . number_format($valor, 2, ',', '.'), 'cliente', $clienteId);
         $db->commit();
 
@@ -48,7 +58,7 @@ if ($acao === 'resgatar') {
         $cl = $stmtCl->fetch();
         if ($cl) {
             $infoAtual = calcularCreditoCliente($clienteId);
-            notificarResgate($cl['telefone'], $cl['nome'], $valor, $infoAtual['credito_disponivel']);
+            notificarResgate($cl['telefone'], $cl['nome'], $valor, $infoAtual['credito_disponivel'], $farmaciaId);
         }
 
         jsonResponse(['sucesso' => true, 'mensagem' => 'Resgate realizado com sucesso']);
@@ -61,8 +71,14 @@ if ($acao === 'resgatar') {
 if ($acao === 'historico') {
     $clienteId = intval($input['cliente_id'] ?? $_GET['cliente_id'] ?? 0);
     if (!$clienteId) jsonResponse(['sucesso' => false, 'erro' => 'ID do cliente invalido'], 400);
-    $stmt = $db->prepare("SELECT * FROM resgates WHERE cliente_id = ? ORDER BY data_resgate DESC");
-    $stmt->execute([$clienteId]);
+
+    // Verificar que o cliente pertence a esta farmacia
+    $stmtCl = $db->prepare("SELECT id FROM clientes WHERE id = ? AND farmacia_id = ?");
+    $stmtCl->execute([$clienteId, $farmaciaId]);
+    if (!$stmtCl->fetch()) jsonResponse(['sucesso' => false, 'erro' => 'Cliente nao encontrado'], 404);
+
+    $stmt = $db->prepare("SELECT * FROM resgates WHERE cliente_id = ? AND farmacia_id = ? ORDER BY data_resgate DESC");
+    $stmt->execute([$clienteId, $farmaciaId]);
     jsonResponse(['sucesso' => true, 'resgates' => $stmt->fetchAll()]);
 }
 

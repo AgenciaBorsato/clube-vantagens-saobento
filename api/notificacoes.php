@@ -1,4 +1,8 @@
 <?php
+// ============================================================
+// BipCash SaaS - API Notificacoes Multi-Tenant
+// Todas as queries filtradas por farmacia_id
+// ============================================================
 require_once __DIR__.'/../includes/db.php';
 require_once __DIR__.'/../includes/whatsapp.php';
 exigirLogin();
@@ -6,6 +10,7 @@ exigirLogin();
 $input = getInput();
 $acao = $input['acao'] ?? $_GET['acao'] ?? '';
 $db = getDB();
+$farmaciaId = getFarmaciaId();
 
 if ($acao === 'creditos_expirando') {
     $limiteExpiracao = date('Y-m-d H:i:s', strtotime('-' . EXPIRACAO_MESES . ' months'));
@@ -17,7 +22,7 @@ if ($acao === 'creditos_expirando') {
                MIN(comp.data_compra) as compra_mais_antiga
         FROM clientes c
         INNER JOIN compras comp ON comp.cliente_id = c.id
-        WHERE c.ativo = TRUE
+        WHERE c.farmacia_id = ? AND c.ativo = TRUE
           AND comp.estornada = FALSE
           AND comp.data_compra >= ?
           AND comp.data_compra < ?
@@ -25,7 +30,7 @@ if ($acao === 'creditos_expirando') {
         HAVING SUM(comp.cashback_valor) > 0
         ORDER BY compra_mais_antiga ASC
     ");
-    $stmt->execute([$limiteExpiracao, $limiteAlerta]);
+    $stmt->execute([$farmaciaId, $limiteExpiracao, $limiteAlerta]);
     $clientes = $stmt->fetchAll();
 
     // Para cada cliente, calcular credito real disponivel
@@ -48,12 +53,12 @@ if ($acao === 'resumo_expiracoes') {
         SELECT COUNT(DISTINCT comp.cliente_id) as total_clientes,
                COALESCE(SUM(comp.cashback_valor), 0) as total_valor
         FROM compras comp
-        INNER JOIN clientes c ON c.id = comp.cliente_id AND c.ativo = TRUE
+        INNER JOIN clientes c ON c.id = comp.cliente_id AND c.farmacia_id = ? AND c.ativo = TRUE
         WHERE comp.estornada = FALSE
           AND comp.data_compra >= ?
           AND comp.data_compra < ?
     ");
-    $stmt->execute([$limiteExpiracao, $limiteAlerta]);
+    $stmt->execute([$farmaciaId, $limiteExpiracao, $limiteAlerta]);
     jsonResponse($stmt->fetch());
 }
 
@@ -62,14 +67,14 @@ if ($acao === 'enviar_alerta') {
     $clienteId = intval($input['cliente_id'] ?? 0);
 
     if ($clienteId) {
-        // Enviar para um cliente especifico
-        $stmt = $db->prepare("SELECT nome, telefone FROM clientes WHERE id = ? AND ativo = TRUE");
-        $stmt->execute([$clienteId]);
+        // Enviar para um cliente especifico (verificar que pertence a farmacia)
+        $stmt = $db->prepare("SELECT nome, telefone FROM clientes WHERE id = ? AND farmacia_id = ? AND ativo = TRUE");
+        $stmt->execute([$clienteId, $farmaciaId]);
         $cl = $stmt->fetch();
         if (!$cl) jsonResponse(['sucesso' => false, 'erro' => 'Cliente nao encontrado'], 404);
         $info = calcularCreditoCliente($clienteId);
         $dataExp = date('d/m/Y', strtotime('-' . EXPIRACAO_MESES . ' months + ' . EXPIRACAO_MESES . ' months'));
-        $resultado = notificarCreditoExpirando($cl['telefone'], $cl['nome'], $info['credito_disponivel'], $dataExp);
+        $resultado = notificarCreditoExpirando($cl['telefone'], $cl['nome'], $info['credito_disponivel'], $dataExp, $farmaciaId);
         registrarAuditoria('alerta_expiracao', "Alerta enviado para {$cl['nome']}", 'cliente', $clienteId);
         jsonResponse(['sucesso' => true, 'mensagem' => 'Alerta enviado!', 'whatsapp' => $resultado]);
     }
@@ -87,12 +92,12 @@ if ($acao === 'enviar_alerta_todos') {
         SELECT c.id, c.nome, c.telefone, MIN(comp.data_compra) as compra_mais_antiga
         FROM clientes c
         INNER JOIN compras comp ON comp.cliente_id = c.id
-        WHERE c.ativo = TRUE AND comp.estornada = FALSE
+        WHERE c.farmacia_id = ? AND c.ativo = TRUE AND comp.estornada = FALSE
           AND comp.data_compra >= ? AND comp.data_compra < ?
         GROUP BY c.id, c.nome, c.telefone
         HAVING SUM(comp.cashback_valor) > 0
     ");
-    $stmt->execute([$limiteExpiracao, $limiteAlerta]);
+    $stmt->execute([$farmaciaId, $limiteExpiracao, $limiteAlerta]);
     $clientes = $stmt->fetchAll();
 
     $enviados = 0;
@@ -100,7 +105,7 @@ if ($acao === 'enviar_alerta_todos') {
         $info = calcularCreditoCliente($cl['id']);
         if ($info['credito_disponivel'] > 0) {
             $dataExp = date('d/m/Y', strtotime($cl['compra_mais_antiga'] . ' + ' . EXPIRACAO_MESES . ' months'));
-            notificarCreditoExpirando($cl['telefone'], $cl['nome'], $info['credito_disponivel'], $dataExp);
+            notificarCreditoExpirando($cl['telefone'], $cl['nome'], $info['credito_disponivel'], $dataExp, $farmaciaId);
             $enviados++;
         }
     }

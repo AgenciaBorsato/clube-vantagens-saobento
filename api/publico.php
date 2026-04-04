@@ -1,6 +1,7 @@
 <?php
 // ============================================================
-// API PUBLICA - Sem autenticação
+// BipCash SaaS - API PUBLICA Multi-Tenant
+// Sem autenticacao - identificacao por slug da farmacia
 // Endpoints para clientes consultarem saldo e se cadastrarem
 // ============================================================
 require_once __DIR__.'/../includes/db.php';
@@ -10,6 +11,34 @@ $input = getInput();
 $acao = $input['acao'] ?? $_GET['acao'] ?? '';
 $db = getDB();
 
+// Resolver farmacia pelo slug (parametro f=slug)
+$farmaciaSlug = $_GET['f'] ?? $input['farmacia'] ?? '';
+$farmaciaId = null;
+$farmaciaInfo = null;
+if ($farmaciaSlug) {
+    $stmtF = $db->prepare("SELECT id, nome, slug, logo_base64, cor_primaria, cor_secundaria FROM farmacias WHERE slug = ? AND ativa = TRUE");
+    $stmtF->execute([$farmaciaSlug]);
+    $farmaciaInfo = $stmtF->fetch();
+    if ($farmaciaInfo) $farmaciaId = $farmaciaInfo['id'];
+}
+if (!$farmaciaId) {
+    jsonResponse(['erro' => 'Farmacia nao identificada. Verifique o link de acesso.'], 400);
+}
+
+// ===== INFO DA FARMACIA (para personalizar pagina publica) =====
+if ($acao === 'info_farmacia') {
+    jsonResponse([
+        'sucesso' => true,
+        'farmacia' => [
+            'nome' => $farmaciaInfo['nome'],
+            'slug' => $farmaciaInfo['slug'],
+            'logo' => $farmaciaInfo['logo_base64'],
+            'cor_primaria' => $farmaciaInfo['cor_primaria'],
+            'cor_secundaria' => $farmaciaInfo['cor_secundaria']
+        ]
+    ]);
+}
+
 // ===== CONSULTA PUBLICA DE SALDO =====
 if ($acao === 'consultar_saldo') {
     $termo = preg_replace('/\D/', '', $input['termo'] ?? $_GET['termo'] ?? '');
@@ -17,8 +46,8 @@ if ($acao === 'consultar_saldo') {
         jsonResponse(['sucesso' => false, 'erro' => 'Informe seu telefone ou CPF completo'], 400);
     }
 
-    $stmt = $db->prepare("SELECT id, nome, telefone, data_cadastro FROM clientes WHERE (telefone = ? OR cpf = ?) AND ativo = TRUE");
-    $stmt->execute([$termo, $termo]);
+    $stmt = $db->prepare("SELECT id, nome, telefone, data_cadastro FROM clientes WHERE (telefone = ? OR cpf = ?) AND farmacia_id = ? AND ativo = TRUE");
+    $stmt->execute([$termo, $termo, $farmaciaId]);
     $cliente = $stmt->fetch();
 
     if (!$cliente) {
@@ -31,10 +60,10 @@ if ($acao === 'consultar_saldo') {
     $stmt = $db->prepare("
         SELECT data_compra, valor, cashback_valor, cashback_percentual
         FROM compras
-        WHERE cliente_id = ? AND estornada = FALSE
+        WHERE cliente_id = ? AND farmacia_id = ? AND estornada = FALSE
         ORDER BY data_compra DESC LIMIT 5
     ");
-    $stmt->execute([$cliente['id']]);
+    $stmt->execute([$cliente['id'], $farmaciaId]);
     $ultimasCompras = $stmt->fetchAll();
 
     // Mascarar nome: mostrar primeiro nome + inicial do sobrenome
@@ -46,18 +75,23 @@ if ($acao === 'consultar_saldo') {
 
     // Info de expiracao
     $limite = date('Y-m-d H:i:s', strtotime('-' . EXPIRACAO_MESES . ' months'));
-    $stmtExp = $db->prepare("SELECT MIN(data_compra) as mais_antiga FROM compras WHERE cliente_id = ? AND estornada = FALSE AND data_compra >= ?");
-    $stmtExp->execute([$cliente['id'], $limite]);
+    $stmtExp = $db->prepare("SELECT MIN(data_compra) as mais_antiga FROM compras WHERE cliente_id = ? AND farmacia_id = ? AND estornada = FALSE AND data_compra >= ?");
+    $stmtExp->execute([$cliente['id'], $farmaciaId, $limite]);
     $maisAntiga = $stmtExp->fetch()['mais_antiga'];
     $proximaExpiracao = $maisAntiga ? date('Y-m-d', strtotime($maisAntiga . ' + ' . EXPIRACAO_MESES . ' months')) : null;
 
-    // Campanhas ativas
-    $stmtCamp = $db->prepare("SELECT nome, bonus_percentual, data_fim FROM campanhas WHERE ativa = TRUE AND data_inicio <= CURRENT_DATE AND data_fim >= CURRENT_DATE ORDER BY bonus_percentual DESC");
-    $stmtCamp->execute();
+    // Campanhas ativas da farmacia
+    $stmtCamp = $db->prepare("SELECT nome, bonus_percentual, data_fim FROM campanhas WHERE farmacia_id = ? AND ativa = TRUE AND data_inicio <= CURRENT_DATE AND data_fim >= CURRENT_DATE ORDER BY bonus_percentual DESC");
+    $stmtCamp->execute([$farmaciaId]);
     $campanhasAtivas = $stmtCamp->fetchAll();
 
     jsonResponse([
         'sucesso' => true,
+        'farmacia' => [
+            'nome' => $farmaciaInfo['nome'],
+            'cor_primaria' => $farmaciaInfo['cor_primaria'],
+            'cor_secundaria' => $farmaciaInfo['cor_secundaria']
+        ],
         'cliente' => [
             'nome' => $nomePublico,
             'membro_desde' => $cliente['data_cadastro'],
@@ -77,7 +111,7 @@ if ($acao === 'consultar_saldo') {
                 'cashback' => floatval($c['cashback_valor']),
             ];
         }, $ultimasCompras),
-        'cashback_atual' => getCashbackAtual(),
+        'cashback_atual' => getCashbackAtual($farmaciaId),
         'proxima_expiracao' => $proximaExpiracao,
         'campanhas_ativas' => $campanhasAtivas,
     ]);
@@ -97,22 +131,24 @@ if ($acao === 'autocadastro') {
     $dataNasc = $input['data_nascimento'] ?? null;
     if ($dataNasc && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataNasc)) $dataNasc = null;
 
-    // Verificar duplicidade
-    $stmt = $db->prepare("SELECT id FROM clientes WHERE (cpf = ? OR telefone = ?) AND ativo = TRUE");
-    $stmt->execute([$cpf, $telefone]);
+    // Verificar duplicidade na farmacia
+    $stmt = $db->prepare("SELECT id FROM clientes WHERE (cpf = ? OR telefone = ?) AND farmacia_id = ? AND ativo = TRUE");
+    $stmt->execute([$cpf, $telefone, $farmaciaId]);
     if ($stmt->fetch()) {
         jsonResponse(['sucesso' => false, 'erro' => 'CPF ou telefone ja cadastrado! Voce ja faz parte do clube. Consulte seu saldo acima.'], 400);
     }
 
-    $stmt = $db->prepare("INSERT INTO clientes (nome, cpf, telefone, data_nascimento) VALUES (?, ?, ?, ?) RETURNING id");
-    $stmt->execute([mb_convert_case($nome, MB_CASE_TITLE, 'UTF-8'), $cpf, $telefone, $dataNasc]);
+    $stmt = $db->prepare("INSERT INTO clientes (farmacia_id, nome, cpf, telefone, data_nascimento) VALUES (?, ?, ?, ?, ?) RETURNING id");
+    $stmt->execute([$farmaciaId, mb_convert_case($nome, MB_CASE_TITLE, 'UTF-8'), $cpf, $telefone, $dataNasc]);
     $id = $stmt->fetch()['id'];
 
+    // Usar farmacia_id null na sessao para auditoria (endpoint publico)
+    $_SESSION['farmacia_id'] = $farmaciaId;
     registrarAuditoria('autocadastro', "Auto-cadastro: $nome (CPF: $cpf)", 'cliente', $id);
 
-    // Enviar boas-vindas via WhatsApp (async - nao bloqueia resposta)
-    $cashbackAtual = getCashbackAtual();
-    notificarBoasVindas($telefone, $nome, $cashbackAtual);
+    // Enviar boas-vindas via WhatsApp
+    $cashbackAtual = getCashbackAtual($farmaciaId);
+    notificarBoasVindas($telefone, $nome, $cashbackAtual, $farmaciaId);
 
     jsonResponse([
         'sucesso' => true,

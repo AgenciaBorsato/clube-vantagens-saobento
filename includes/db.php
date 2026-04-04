@@ -1,13 +1,15 @@
 <?php
 // ============================================================
-// DROGARIA SAO BENTO - CLUBE DE VANTAGENS v2
-// Configuracao e Helpers (PostgreSQL + Railway)
+// BIPCASH SaaS - Configuracao e Helpers Multi-Tenant
+// PostgreSQL + Railway
 // ============================================================
 
 define('EXPIRACAO_MESES', 3);
 define('SENHA_PADRAO', 'saobento2026');
 define('MAX_TENTATIVAS_LOGIN', 5);
 define('BLOQUEIO_MINUTOS', 15);
+define('SUPER_ADMIN_PADRAO', 'super');
+define('SUPER_ADMIN_SENHA', 'bipcash2026');
 
 // ===== SESSION SECURITY =====
 ini_set('session.cookie_httponly', 1);
@@ -88,13 +90,27 @@ function verificarCSRF() {
     }
 }
 
+// ===== MULTI-TENANT: Get farmacia_id from session =====
+function getFarmaciaId() {
+    if (!empty($_SESSION['farmacia_id'])) {
+        return intval($_SESSION['farmacia_id']);
+    }
+    jsonResponse(['erro' => 'Farmacia nao identificada. Faca login novamente.'], 401);
+}
+
 // ===== AUTENTICACAO =====
 function exigirLogin() {
     if (empty($_SESSION['logado']) || $_SESSION['logado'] !== true) {
         jsonResponse(['erro' => 'Acesso nao autorizado. Faca login novamente.'], 401);
     }
-    // Multi-user: exigir usuario_id na sessao
-    if (empty($_SESSION['usuario_id'])) {
+    if (empty($_SESSION['usuario_id']) || empty($_SESSION['farmacia_id'])) {
+        // Super admin impersonando nao tem usuario_id mas tem farmacia_id
+        if (!empty($_SESSION['is_super_admin']) && !empty($_SESSION['farmacia_id'])) {
+            return; // Super admin impersonando pode acessar
+        }
+        if (!empty($_SESSION['is_super_admin'])) {
+            jsonResponse(['erro' => 'Super admin deve selecionar uma farmacia antes de acessar este recurso.'], 403);
+        }
         session_destroy();
         jsonResponse(['erro' => 'Sessao expirada. Faca login novamente.'], 401);
     }
@@ -102,9 +118,28 @@ function exigirLogin() {
 
 function exigirGerente() {
     exigirLogin();
+    // Super admin pode tudo que gerente pode
+    if (!empty($_SESSION['is_super_admin']) && $_SESSION['is_super_admin'] === true) {
+        return;
+    }
     if (empty($_SESSION['usuario_role']) || $_SESSION['usuario_role'] !== 'gerente') {
         jsonResponse(['erro' => 'Acesso restrito a gerentes'], 403);
     }
+}
+
+// ===== MULTI-TENANT: Require super admin =====
+function exigirSuperAdmin() {
+    if (empty($_SESSION['is_super_admin']) || $_SESSION['is_super_admin'] !== true) {
+        jsonResponse(['erro' => 'Acesso restrito ao administrador do sistema'], 403);
+    }
+}
+
+// ===== MULTI-TENANT: Check if super admin OR logged in user =====
+function exigirLoginOuSuperAdmin() {
+    if (!empty($_SESSION['is_super_admin']) && $_SESSION['is_super_admin'] === true) {
+        return; // Super admin pode tudo
+    }
+    exigirLogin();
 }
 
 function getClientIP() {
@@ -147,16 +182,6 @@ function limparTentativasLogin() {
     $db->query("DELETE FROM login_tentativas WHERE tentativa_em < NOW() - INTERVAL '1 hour'");
 }
 
-function getSenha() {
-    $db = getDB();
-    $stmt = $db->query("SELECT valor FROM configuracoes WHERE chave = 'senha_acesso'");
-    $row = $stmt->fetch();
-    if ($row) return $row['valor'];
-    $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);
-    $db->prepare("INSERT INTO configuracoes (chave, valor) VALUES ('senha_acesso', ?)")->execute([$hash]);
-    return $hash;
-}
-
 // ===== VALIDACAO CPF =====
 function validarCPF($cpf) {
     $cpf = preg_replace('/\D/', '', $cpf);
@@ -178,17 +203,19 @@ function validarCPF($cpf) {
     return true;
 }
 
-// ===== CASHBACK =====
-function getCashbackPercentual($ano, $mes) {
+// ===== CASHBACK (multi-tenant) =====
+function getCashbackPercentual($farmaciaId, $ano, $mes) {
     $db = getDB();
-    $stmt = $db->prepare("SELECT percentual FROM cashback_mensal WHERE ano = ? AND mes = ?");
-    $stmt->execute([$ano, $mes]);
+    $stmt = $db->prepare("SELECT percentual FROM cashback_mensal WHERE farmacia_id = ? AND ano = ? AND mes = ?");
+    $stmt->execute([$farmaciaId, $ano, $mes]);
     $row = $stmt->fetch();
     return $row ? floatval($row['percentual']) : 5.00;
 }
 
-function getCashbackAtual() {
-    return getCashbackPercentual(date('Y'), date('n'));
+function getCashbackAtual($farmaciaId = null) {
+    if (!$farmaciaId) $farmaciaId = $_SESSION['farmacia_id'] ?? null;
+    if (!$farmaciaId) return 5.00;
+    return getCashbackPercentual($farmaciaId, date('Y'), date('n'));
 }
 
 // ===== CREDITO (com expiracao por compra individual) =====
@@ -245,16 +272,17 @@ function calcularCreditoCliente($clienteId) {
     ];
 }
 
-// ===== AUDIT TRAIL =====
+// ===== AUDIT TRAIL (multi-tenant) =====
 function registrarAuditoria($acao, $detalhes = '', $entidadeTipo = null, $entidadeId = null) {
     $db = getDB();
     $ip = getClientIP();
+    $farmaciaId = $_SESSION['farmacia_id'] ?? null;
     $usuarioId = $_SESSION['usuario_id'] ?? null;
-    $stmt = $db->prepare("INSERT INTO auditoria (acao, detalhes, entidade_tipo, entidade_id, ip, usuario_id) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$acao, $detalhes, $entidadeTipo, $entidadeId, $ip, $usuarioId]);
+    $stmt = $db->prepare("INSERT INTO auditoria (farmacia_id, usuario_id, acao, detalhes, entidade_tipo, entidade_id, ip) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$farmaciaId, $usuarioId, $acao, $detalhes, $entidadeTipo, $entidadeId, $ip]);
 }
 
-// ===== INICIALIZACAO =====
+// ===== INICIALIZACAO (multi-tenant) =====
 function inicializarBanco() {
     static $inicializado = false;
     if ($inicializado) return;
@@ -264,17 +292,25 @@ function inicializarBanco() {
     // Sempre executa o SQL (idempotente com IF NOT EXISTS)
     $sql = file_get_contents(__DIR__ . '/../database.sql');
     $db->exec($sql);
-    $stmt = $db->query("SELECT COUNT(*) as c FROM configuracoes WHERE chave = 'senha_acesso'");
+
+    // Seed farmacia padrao se nao existe
+    $stmt = $db->query("SELECT COUNT(*) as c FROM farmacias");
     if ($stmt->fetch()['c'] == 0) {
-        $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);
-        $db->prepare("INSERT INTO configuracoes (chave, valor) VALUES ('senha_acesso', ?)")->execute([$hash]);
+        $db->query("INSERT INTO farmacias (nome, slug, cor_primaria, cor_secundaria) VALUES ('Drogaria Sao Bento', 'sao-bento', '#2196f3', '#0a2540')");
     }
 
-    // Seed usuario admin se tabela usuarios estiver vazia
+    // Seed super admin
+    $stmt = $db->query("SELECT COUNT(*) as c FROM super_admins");
+    if ($stmt->fetch()['c'] == 0) {
+        $hash = password_hash(SUPER_ADMIN_SENHA, PASSWORD_DEFAULT);
+        $db->prepare("INSERT INTO super_admins (username, password_hash, nome) VALUES (?, ?, 'Administrador BipCash')")->execute([SUPER_ADMIN_PADRAO, $hash]);
+    }
+
+    // Seed admin da primeira farmacia
     $stmt = $db->query("SELECT COUNT(*) as c FROM usuarios");
     if ($stmt->fetch()['c'] == 0) {
         $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);
-        $db->prepare("INSERT INTO usuarios (username, password_hash, nome, role) VALUES ('admin', ?, 'Administrador', 'gerente')")->execute([$hash]);
+        $db->prepare("INSERT INTO usuarios (farmacia_id, username, password_hash, nome, role) VALUES (1, 'admin', ?, 'Administrador', 'gerente')")->execute([$hash]);
     }
 }
 inicializarBanco();

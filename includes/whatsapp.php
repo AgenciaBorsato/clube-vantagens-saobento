@@ -1,20 +1,39 @@
 <?php
 // ============================================================
-// Integração com Evolution API v2 - WhatsApp
-// Docs: https://doc.evolution-api.com/v2/api-reference/message-controller/send-text
+// BipCash SaaS - Integracao com Evolution API v2 - WhatsApp
+// Multi-tenant: config por farmacia
 // ============================================================
 
-function getEvolutionConfig() {
+function getEvolutionConfig($farmaciaId = null) {
+    if ($farmaciaId) {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT nome, whatsapp_url, whatsapp_instance, whatsapp_token, whatsapp_enabled FROM farmacias WHERE id = ?");
+        $stmt->execute([$farmaciaId]);
+        $f = $stmt->fetch();
+        if ($f && $f['whatsapp_enabled'] && $f['whatsapp_url']) {
+            return [
+                'url' => rtrim($f['whatsapp_url'], '/'),
+                'instance' => $f['whatsapp_instance'],
+                'token' => $f['whatsapp_token'],
+                'enabled' => true,
+                'farmacia_nome' => $f['nome']
+            ];
+        }
+        // Se farmacia nao tem WhatsApp proprio, usar nome da farmacia com fallback env
+        $farmaciaNome = $f ? $f['nome'] : 'BipCash';
+    }
+    // Fallback to environment variables
     return [
         'url' => rtrim(getenv('EVOLUTION_API_URL') ?: '', '/'),
         'instance' => getenv('EVOLUTION_INSTANCE') ?: '',
         'token' => getenv('EVOLUTION_API_TOKEN') ?: '',
         'enabled' => (bool)(getenv('EVOLUTION_ENABLED') ?: false),
+        'farmacia_nome' => $farmaciaNome ?? 'BipCash'
     ];
 }
 
-function enviarWhatsApp($telefone, $mensagem) {
-    $config = getEvolutionConfig();
+function enviarWhatsApp($telefone, $mensagem, $farmaciaId = null) {
+    $config = getEvolutionConfig($farmaciaId);
     if (!$config['enabled'] || !$config['url'] || !$config['instance'] || !$config['token']) {
         return ['sucesso' => false, 'erro' => 'WhatsApp nao configurado'];
     }
@@ -67,75 +86,85 @@ function enviarWhatsApp($telefone, $mensagem) {
     return ['sucesso' => false, 'erro' => 'HTTP ' . $httpCode, 'resposta' => json_decode($response, true)];
 }
 
-// Mensagens padrao
-function notificarCashbackCompra($telefone, $nomeCliente, $valorCompra, $cashbackValor, $cashbackPercentual, $creditoDisponivel) {
+// Mensagens padrao (multi-tenant: usa nome da farmacia)
+function notificarCashbackCompra($telefone, $nomeCliente, $valorCompra, $cashbackValor, $cashbackPercentual, $creditoDisponivel, $farmaciaId = null) {
+    $config = getEvolutionConfig($farmaciaId);
+    $farmaciaNome = $config['farmacia_nome'];
     $nome = explode(' ', trim($nomeCliente))[0]; // Primeiro nome
     $valorFmt = number_format($valorCompra, 2, ',', '.');
     $cashbackFmt = number_format($cashbackValor, 2, ',', '.');
     $creditoFmt = number_format($creditoDisponivel, 2, ',', '.');
 
-    $mensagem = "Ola, {$nome}! 🏥\n\n"
-        . "Sua compra na *Drogaria Sao Bento* foi registrada no Clube de Vantagens!\n\n"
-        . "🛒 Compra: R\$ {$valorFmt}\n"
-        . "🎁 Cashback ({$cashbackPercentual}%): *R\$ {$cashbackFmt}*\n"
-        . "💰 Seu credito disponivel: *R\$ {$creditoFmt}*\n\n"
-        . "Use seu credito na proxima compra! 😊\n"
-        . "_Drogaria Sao Bento - Clube de Vantagens_";
+    $mensagem = "Ola, {$nome}!\n\n"
+        . "Sua compra na *{$farmaciaNome}* foi registrada no Clube de Vantagens!\n\n"
+        . "Compra: R\$ {$valorFmt}\n"
+        . "Cashback ({$cashbackPercentual}%): *R\$ {$cashbackFmt}*\n"
+        . "Seu credito disponivel: *R\$ {$creditoFmt}*\n\n"
+        . "Use seu credito na proxima compra!\n"
+        . "_{$farmaciaNome} - Clube de Vantagens_";
 
-    return enviarWhatsApp($telefone, $mensagem);
+    return enviarWhatsApp($telefone, $mensagem, $farmaciaId);
 }
 
-function notificarResgate($telefone, $nomeCliente, $valorResgate, $creditoRestante) {
+function notificarResgate($telefone, $nomeCliente, $valorResgate, $creditoRestante, $farmaciaId = null) {
+    $config = getEvolutionConfig($farmaciaId);
+    $farmaciaNome = $config['farmacia_nome'];
     $nome = explode(' ', trim($nomeCliente))[0];
     $resgateFmt = number_format($valorResgate, 2, ',', '.');
     $restanteFmt = number_format($creditoRestante, 2, ',', '.');
 
-    $mensagem = "Ola, {$nome}! 🏥\n\n"
+    $mensagem = "Ola, {$nome}!\n\n"
         . "Resgate realizado no *Clube de Vantagens*!\n\n"
-        . "✅ Valor resgatado: *R\$ {$resgateFmt}*\n"
-        . "💰 Credito restante: *R\$ {$restanteFmt}*\n\n"
-        . "Continue comprando e acumulando cashback! 🎁\n"
-        . "_Drogaria Sao Bento - Clube de Vantagens_";
+        . "Valor resgatado: *R\$ {$resgateFmt}*\n"
+        . "Credito restante: *R\$ {$restanteFmt}*\n\n"
+        . "Continue comprando e acumulando cashback!\n"
+        . "_{$farmaciaNome} - Clube de Vantagens_";
 
-    return enviarWhatsApp($telefone, $mensagem);
+    return enviarWhatsApp($telefone, $mensagem, $farmaciaId);
 }
 
-function notificarBoasVindas($telefone, $nomeCliente, $cashbackAtual) {
+function notificarBoasVindas($telefone, $nomeCliente, $cashbackAtual, $farmaciaId = null) {
+    $config = getEvolutionConfig($farmaciaId);
+    $farmaciaNome = $config['farmacia_nome'];
     $nome = explode(' ', trim($nomeCliente))[0];
 
-    $mensagem = "Bem-vindo(a) ao *Clube de Vantagens*, {$nome}! 🎉\n\n"
-        . "Voce agora faz parte do programa de fidelidade da *Drogaria Sao Bento*!\n\n"
-        . "🎁 Cashback atual: *{$cashbackAtual}%* sobre suas compras\n"
-        . "💰 Acumule creditos e use como desconto\n"
-        . "📱 Consulte seu saldo a qualquer momento\n\n"
-        . "Obrigado por escolher a Drogaria Sao Bento! 😊";
+    $mensagem = "Bem-vindo(a) ao *Clube de Vantagens*, {$nome}!\n\n"
+        . "Voce agora faz parte do programa de fidelidade da *{$farmaciaNome}*!\n\n"
+        . "Cashback atual: *{$cashbackAtual}%* sobre suas compras\n"
+        . "Acumule creditos e use como desconto\n"
+        . "Consulte seu saldo a qualquer momento\n\n"
+        . "Obrigado por escolher a {$farmaciaNome}!";
 
-    return enviarWhatsApp($telefone, $mensagem);
+    return enviarWhatsApp($telefone, $mensagem, $farmaciaId);
 }
 
-function notificarAniversario($telefone, $nomeCliente, $creditoDisponivel) {
+function notificarAniversario($telefone, $nomeCliente, $creditoDisponivel, $farmaciaId = null) {
+    $config = getEvolutionConfig($farmaciaId);
+    $farmaciaNome = $config['farmacia_nome'];
     $nome = explode(' ', trim($nomeCliente))[0];
     $creditoFmt = number_format($creditoDisponivel, 2, ',', '.');
 
-    $mensagem = "Feliz aniversario, {$nome}! 🎂🎉\n\n"
-        . "A *Drogaria Sao Bento* deseja a voce um dia muito especial!\n\n"
-        . "💰 Seu credito disponivel: *R\$ {$creditoFmt}*\n\n"
-        . "Venha nos visitar e aproveite seu cashback! 🎁\n"
-        . "_Drogaria Sao Bento - Clube de Vantagens_";
+    $mensagem = "Feliz aniversario, {$nome}!\n\n"
+        . "A *{$farmaciaNome}* deseja a voce um dia muito especial!\n\n"
+        . "Seu credito disponivel: *R\$ {$creditoFmt}*\n\n"
+        . "Venha nos visitar e aproveite seu cashback!\n"
+        . "_{$farmaciaNome} - Clube de Vantagens_";
 
-    return enviarWhatsApp($telefone, $mensagem);
+    return enviarWhatsApp($telefone, $mensagem, $farmaciaId);
 }
 
-function notificarCreditoExpirando($telefone, $nomeCliente, $valorExpirando, $dataExpiracao) {
+function notificarCreditoExpirando($telefone, $nomeCliente, $valorExpirando, $dataExpiracao, $farmaciaId = null) {
+    $config = getEvolutionConfig($farmaciaId);
+    $farmaciaNome = $config['farmacia_nome'];
     $nome = explode(' ', trim($nomeCliente))[0];
     $valorFmt = number_format($valorExpirando, 2, ',', '.');
 
-    $mensagem = "Ola, {$nome}! ⚠️\n\n"
+    $mensagem = "Ola, {$nome}!\n\n"
         . "Seus creditos no *Clube de Vantagens* estao prestes a expirar!\n\n"
-        . "💰 Credito disponivel: *R\$ {$valorFmt}*\n"
-        . "📅 Expira em: *{$dataExpiracao}*\n\n"
-        . "Nao perca! Venha usar seu cashback antes que expire! 🏥\n"
-        . "_Drogaria Sao Bento - Clube de Vantagens_";
+        . "Credito disponivel: *R\$ {$valorFmt}*\n"
+        . "Expira em: *{$dataExpiracao}*\n\n"
+        . "Nao perca! Venha usar seu cashback antes que expire!\n"
+        . "_{$farmaciaNome} - Clube de Vantagens_";
 
-    return enviarWhatsApp($telefone, $mensagem);
+    return enviarWhatsApp($telefone, $mensagem, $farmaciaId);
 }
