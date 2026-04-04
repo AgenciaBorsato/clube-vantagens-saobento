@@ -18,15 +18,11 @@
 
   <!-- LOGIN PAGE -->
   <div class="login-page" id="loginPage">
-    <div class="login-shapes">
-      <div class="shape shape-1"></div>
-      <div class="shape shape-2"></div>
-      <div class="shape shape-3"></div>
-    </div>
+    <div class="login-shapes"></div>
     <div class="login-card glass-card">
       <div class="login-brand">
         <h1>BipCash</h1>
-        <p class="subtitle">Sistema de Cashback Inteligente</p>
+        <p class="subtitle">Sistema de Cashback</p>
       </div>
       <div id="loginError" class="alert alert-danger" style="display:none"></div>
       <div class="form-group">
@@ -51,9 +47,9 @@
       <p>Programa de Cashback</p>
     </div>
     <div class="public-container">
-      <div class="glass-card" style="padding:32px;margin-bottom:20px">
+      <div class="glass-card" style="padding:28px;margin-bottom:16px">
         <h3>Consultar Saldo</h3>
-        <p style="margin-bottom:16px;color:var(--text-secondary)">Informe seu telefone ou CPF</p>
+        <p style="margin-bottom:14px;color:var(--text-secondary);font-size:13px">Informe seu telefone ou CPF</p>
         <div class="search-bar">
           <input type="tel" id="publicBusca" placeholder="(00) 00000-0000 ou CPF" oninput="maskPublicBusca(this)" onkeydown="if(event.key==='Enter')consultarSaldoPublico()">
           <button class="btn btn-primary" onclick="consultarSaldoPublico()">Consultar</button>
@@ -74,9 +70,9 @@
           <div id="publicUltimasCompras"></div>
         </div>
       </div>
-      <div class="glass-card" style="padding:32px;margin-bottom:20px">
+      <div class="glass-card" style="padding:28px;margin-bottom:16px">
         <h3>Cadastre-se</h3>
-        <p style="margin-bottom:16px;color:var(--text-secondary)">Entre para o programa de cashback</p>
+        <p style="margin-bottom:14px;color:var(--text-secondary);font-size:13px">Entre para o programa de cashback</p>
         <div id="pubCadastroMsg" class="alert" style="display:none"></div>
         <div class="form-group"><label>Nome Completo</label><input type="text" id="pubNome" placeholder="Seu nome completo"></div>
         <div class="form-row">
@@ -86,9 +82,9 @@
         <div class="form-group"><label>Data de Nascimento</label><input type="date" id="pubNascimento"></div>
         <button class="btn btn-primary btn-block" onclick="autoCadastro()">Cadastrar</button>
       </div>
-      <div class="glass-card" style="padding:32px;text-align:center">
+      <div class="glass-card" style="padding:28px;text-align:center">
         <div class="highlight-number" id="publicPct">5%</div>
-        <p style="color:var(--text-secondary)">Cashback atual sobre suas compras</p>
+        <p style="color:var(--text-secondary);font-size:13px">Cashback atual sobre suas compras</p>
       </div>
       <div class="public-footer">
         <a href="#" onclick="showLoginPage();return false">Acesso administrativo</a>
@@ -104,16 +100,16 @@
         <small>Super Admin</small>
       </div>
       <nav>
-        <div class="nav-item active" data-page="super-dashboard" onclick="goTo('super-dashboard')"><span class="nav-icon">📊</span>Dashboard</div>
-        <div class="nav-item" data-page="super-farmacias" onclick="goTo('super-farmacias')"><span class="nav-icon">🏪</span>Farmacias</div>
-        <div class="nav-item" data-page="super-config" onclick="goTo('super-config')"><span class="nav-icon">⚙️</span>Configuracoes</div>
+        <div class="nav-item active" data-page="super-dashboard" onclick="goTo('super-dashboard')"><span class="nav-icon"></span>Dashboard</div>
+        <div class="nav-item" data-page="super-farmacias" onclick="goTo('super-farmacias')"><span class="nav-icon"></span>Farmacias</div>
+        <div class="nav-item" data-page="super-config" onclick="goTo('super-config')"><span class="nav-icon"></span>Configuracoes</div>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">
           <span id="superUserName"></span>
           <small>Super Admin</small>
         </div>
-        <button class="btn btn-danger btn-sm btn-block" onclick="doLogout()" style="margin-top:12px">Sair</button>
+        <button class="btn btn-danger btn-sm btn-block" onclick="doLogout()" style="margin-top:10px">Sair</button>
       </div>
     </aside>
     <div class="main-content">
@@ -122,7 +118,7 @@
           <button class="hamburger" onclick="toggleSidebar('super')">&#9776;</button>
           <h1 id="superPageTitle">Dashboard</h1>
         </div>
-        <span id="superGreeting" style="font-size:13px;color:var(--text-muted)"></span>
+        <span id="superGreeting" style="font-size:12px;color:var(--text-muted)"></span>
       </div>
       <div class="page-content">
         <!-- Super Dashboard -->
@@ -135,13 +131,13 @@
         </div>
         <!-- Super Farmacias -->
         <div class="page" id="page-super-farmacias">
-          <div class="card-header" style="margin-bottom:24px"><h3 class="card-title">Gerenciar Farmacias</h3><button class="btn btn-primary btn-sm" onclick="openModal('modalNovaFarmacia')">+ Nova Farmacia</button></div>
+          <div class="card-header" style="margin-bottom:20px"><h3 class="card-title">Gerenciar Farmacias</h3><button class="btn btn-primary btn-sm" onclick="openModal('modalNovaFarmacia')">+ Nova Farmacia</button></div>
           <div id="superFarmaciasList"></div>
         </div>
         <!-- Super Config -->
         <div class="page" id="page-super-config">
-          <div class="glass-card" style="padding:32px">
-            <h3 style="margin-bottom:24px">Alterar Senha</h3>
+          <div class="glass-card" style="padding:28px">
+            <h3 style="margin-bottom:20px;font-size:15px;font-weight:600">Alterar Senha</h3>
             <div class="form-group"><label>Senha Atual</label><input type="password" id="superSenhaAtual"></div>
             <div class="form-group"><label>Nova Senha</label><input type="password" id="superSenha1"></div>
             <div class="form-group"><label>Confirmar Nova Senha</label><input type="password" id="superSenha2"></div>
@@ -167,24 +163,24 @@
         <small>Clube de Vantagens</small>
       </div>
       <nav>
-        <div class="nav-item active" data-page="dashboard" onclick="goTo('dashboard')"><span class="nav-icon">📊</span>Painel</div>
-        <div class="nav-item" data-page="cadastro" onclick="goTo('cadastro')"><span class="nav-icon">👤</span>Cadastrar</div>
-        <div class="nav-item" data-page="venda" onclick="goTo('venda')"><span class="nav-icon">🛒</span>Nova Compra</div>
-        <div class="nav-item" data-page="consulta" onclick="goTo('consulta')"><span class="nav-icon">🔍</span>Consultar</div>
-        <div class="nav-item" data-page="resgate" onclick="goTo('resgate')"><span class="nav-icon">💰</span>Resgatar</div>
-        <div class="nav-item" data-page="clientes" onclick="goTo('clientes')"><span class="nav-icon">👥</span>Clientes</div>
-        <div class="nav-item gerente-only" data-page="aniversariantes" onclick="goTo('aniversariantes')"><span class="nav-icon">🎂</span>Aniversarios</div>
-        <div class="nav-item gerente-only" data-page="campanhas" onclick="goTo('campanhas')"><span class="nav-icon">📣</span>Campanhas</div>
-        <div class="nav-item gerente-only" data-page="relatorios" onclick="goTo('relatorios')"><span class="nav-icon">📈</span>Relatorios</div>
-        <div class="nav-item gerente-only" data-page="config" onclick="goTo('config')"><span class="nav-icon">⚙️</span>Configuracoes</div>
-        <div class="nav-item gerente-only" data-page="usuarios" onclick="goTo('usuarios')"><span class="nav-icon">🔐</span>Usuarios</div>
+        <div class="nav-item active" data-page="dashboard" onclick="goTo('dashboard')"><span class="nav-icon"></span>Painel</div>
+        <div class="nav-item" data-page="cadastro" onclick="goTo('cadastro')"><span class="nav-icon"></span>Cadastrar</div>
+        <div class="nav-item" data-page="venda" onclick="goTo('venda')"><span class="nav-icon"></span>Nova Compra</div>
+        <div class="nav-item" data-page="consulta" onclick="goTo('consulta')"><span class="nav-icon"></span>Consultar</div>
+        <div class="nav-item" data-page="resgate" onclick="goTo('resgate')"><span class="nav-icon"></span>Resgatar</div>
+        <div class="nav-item" data-page="clientes" onclick="goTo('clientes')"><span class="nav-icon"></span>Clientes</div>
+        <div class="nav-item gerente-only" data-page="aniversariantes" onclick="goTo('aniversariantes')"><span class="nav-icon"></span>Aniversarios</div>
+        <div class="nav-item gerente-only" data-page="campanhas" onclick="goTo('campanhas')"><span class="nav-icon"></span>Campanhas</div>
+        <div class="nav-item gerente-only" data-page="relatorios" onclick="goTo('relatorios')"><span class="nav-icon"></span>Relatorios</div>
+        <div class="nav-item gerente-only" data-page="config" onclick="goTo('config')"><span class="nav-icon"></span>Configuracoes</div>
+        <div class="nav-item gerente-only" data-page="usuarios" onclick="goTo('usuarios')"><span class="nav-icon"></span>Usuarios</div>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">
           <span id="farmaciaUserName"></span>
           <small id="farmaciaUserRole"></small>
         </div>
-        <button class="btn btn-danger btn-sm btn-block" onclick="doLogout()" style="margin-top:12px">Sair</button>
+        <button class="btn btn-danger btn-sm btn-block" onclick="doLogout()" style="margin-top:10px">Sair</button>
       </div>
     </aside>
     <div class="main-content">
@@ -193,16 +189,16 @@
           <button class="hamburger" onclick="toggleSidebar('farmacia')">&#9776;</button>
           <h1 id="pageTitle">Painel</h1>
         </div>
-        <span id="todayDate" style="font-size:13px;color:var(--text-muted)"></span>
+        <span id="todayDate" style="font-size:12px;color:var(--text-muted)"></span>
       </div>
       <div class="page-content">
         <!-- DASHBOARD -->
         <div class="page active" id="page-dashboard">
           <div class="quick-actions">
-            <button class="quick-btn quick-btn-primary" onclick="goTo('venda')"><span>🛒</span>Nova Compra</button>
-            <button class="quick-btn quick-btn-gold" onclick="goTo('resgate')"><span>💰</span>Resgatar</button>
-            <button class="quick-btn quick-btn-accent" onclick="goTo('consulta')"><span>🔍</span>Consultar</button>
-            <button class="quick-btn quick-btn-success" onclick="goTo('cadastro')"><span>👤</span>Cadastrar</button>
+            <button class="quick-btn quick-btn-primary" onclick="goTo('venda')"><span></span>Nova Compra</button>
+            <button class="quick-btn quick-btn-gold" onclick="goTo('resgate')"><span></span>Resgatar</button>
+            <button class="quick-btn quick-btn-accent" onclick="goTo('consulta')"><span></span>Consultar</button>
+            <button class="quick-btn quick-btn-success" onclick="goTo('cadastro')"><span></span>Cadastrar</button>
           </div>
           <div class="stats-grid" id="statsGrid"></div>
           <div id="dashboardCampanha" class="campaign-banner" style="display:none"></div>
@@ -214,8 +210,8 @@
 
         <!-- CADASTRO -->
         <div class="page" id="page-cadastro">
-          <div class="glass-card" style="padding:32px;max-width:600px">
-            <h3 style="margin-bottom:24px">Novo Cliente</h3>
+          <div class="glass-card" style="padding:28px;max-width:560px">
+            <h3 style="margin-bottom:20px;font-size:15px;font-weight:600">Novo Cliente</h3>
             <div class="form-group"><label>Nome Completo</label><input type="text" id="cadNome" placeholder="Nome e sobrenome"></div>
             <div class="form-row">
               <div class="form-group"><label>CPF</label><input type="text" id="cadCPF" placeholder="000.000.000-00" oninput="maskCPF(this)"></div>
@@ -228,8 +224,8 @@
 
         <!-- VENDA -->
         <div class="page" id="page-venda">
-          <div class="glass-card" style="padding:32px;max-width:600px">
-            <h3 style="margin-bottom:24px">Registrar Compra</h3>
+          <div class="glass-card" style="padding:28px;max-width:560px">
+            <h3 style="margin-bottom:20px;font-size:15px;font-weight:600">Registrar Compra</h3>
             <div class="search-bar" style="position:relative">
               <input type="text" id="vendaTel" placeholder="Buscar por telefone, CPF ou nome" oninput="buscarRapido(this.value,'vendaSugestoes')">
               <button class="btn btn-primary" onclick="buscarVenda()">Buscar</button>
@@ -237,7 +233,7 @@
             </div>
             <div class="customer-detail" id="vendaInfo">
               <div class="customer-info-grid" id="vendaData"></div>
-              <div class="form-group" style="margin-top:16px"><label>VALOR DA COMPRA (R$)</label><input type="text" id="vendaValor" placeholder="0,00" oninput="maskMoney(this)"></div>
+              <div class="form-group" style="margin-top:14px"><label>VALOR DA COMPRA (R$)</label><input type="text" id="vendaValor" placeholder="0,00" oninput="maskMoney(this)"></div>
               <button class="btn btn-primary btn-block" onclick="confirmarCompra()">Registrar Compra</button>
             </div>
           </div>
@@ -245,8 +241,8 @@
 
         <!-- CONSULTA -->
         <div class="page" id="page-consulta">
-          <div class="glass-card" style="padding:32px">
-            <h3 style="margin-bottom:24px">Consultar Cliente</h3>
+          <div class="glass-card" style="padding:28px">
+            <h3 style="margin-bottom:20px;font-size:15px;font-weight:600">Consultar Cliente</h3>
             <div class="search-bar" style="position:relative">
               <input type="text" id="consultaBusca" placeholder="Buscar por telefone, CPF ou nome" oninput="buscarRapido(this.value,'consultaSugestoes')">
               <button class="btn btn-primary" onclick="consultarCliente()">Buscar</button>
@@ -255,12 +251,12 @@
             <div class="customer-detail" id="consultaResult">
               <div class="customer-info-grid" id="consultaData"></div>
               <div class="points-display" id="consultaPoints"></div>
-              <div style="margin-top:24px">
-                <h4 style="margin-bottom:12px">Historico de Compras</h4>
+              <div style="margin-top:20px">
+                <h4 style="margin-bottom:10px;font-size:14px;font-weight:600">Historico de Compras</h4>
                 <div class="table-wrapper"><table><thead><tr><th>DATA</th><th>VALOR</th><th>CASHBACK</th><th>STATUS</th><th>ACOES</th></tr></thead><tbody id="consultaHistorico"></tbody></table></div>
               </div>
-              <div style="margin-top:24px">
-                <h4 style="margin-bottom:12px">Historico de Resgates</h4>
+              <div style="margin-top:20px">
+                <h4 style="margin-bottom:10px;font-size:14px;font-weight:600">Historico de Resgates</h4>
                 <div class="table-wrapper"><table><thead><tr><th>DATA</th><th>VALOR</th></tr></thead><tbody id="consultaResgateList"></tbody></table></div>
               </div>
             </div>
@@ -269,8 +265,8 @@
 
         <!-- RESGATE -->
         <div class="page" id="page-resgate">
-          <div class="glass-card" style="padding:32px;max-width:600px">
-            <h3 style="margin-bottom:24px">Resgatar Credito</h3>
+          <div class="glass-card" style="padding:28px;max-width:560px">
+            <h3 style="margin-bottom:20px;font-size:15px;font-weight:600">Resgatar Credito</h3>
             <div class="search-bar" style="position:relative">
               <input type="text" id="resgateTel" placeholder="Buscar por telefone, CPF ou nome" oninput="buscarRapido(this.value,'resgateSugestoes')">
               <button class="btn btn-primary" onclick="buscarResgate()">Buscar</button>
@@ -279,7 +275,7 @@
             <div class="customer-detail" id="resgateInfo">
               <div class="customer-info-grid" id="resgateData"></div>
               <div class="points-display" id="resgatePoints"></div>
-              <div class="resgate-form" style="margin-top:16px">
+              <div class="resgate-form" style="margin-top:14px">
                 <div class="form-group"><label>VALOR DO RESGATE (R$)</label><input type="text" id="resgateValor" placeholder="0,00" oninput="maskMoney(this)"></div>
                 <button class="btn btn-gold" onclick="realizarResgate()">Resgatar</button>
               </div>
@@ -309,7 +305,7 @@
               <h3 class="card-title">Aniversariantes</h3>
               <div style="display:flex;gap:8px;align-items:center">
                 <button class="btn btn-secondary btn-sm" onclick="mesAniversario(-1)">&lt;</button>
-                <span id="anivMesLabel" style="font-weight:700;min-width:80px;text-align:center"></span>
+                <span id="anivMesLabel" style="font-weight:600;min-width:80px;text-align:center;font-size:13px"></span>
                 <button class="btn btn-secondary btn-sm" onclick="mesAniversario(1)">&gt;</button>
               </div>
             </div>
@@ -330,10 +326,10 @@
 
         <!-- RELATORIOS -->
         <div class="page" id="page-relatorios">
-          <div class="glass-card"><h3 style="margin-bottom:16px">Vendas Mensais &mdash; <span id="chartAno"></span></h3><div class="chart-canvas-container"><canvas id="chartVendas"></canvas></div></div>
+          <div class="glass-card"><h3 style="margin-bottom:14px;font-size:15px;font-weight:600">Vendas Mensais &mdash; <span id="chartAno"></span></h3><div class="chart-canvas-container"><canvas id="chartVendas"></canvas></div></div>
           <div class="charts-grid">
-            <div class="glass-card"><h3 style="margin-bottom:12px;font-size:15px">Cashback Gerado vs Resgatado</h3><div class="chart-canvas-container"><canvas id="chartCashback"></canvas></div></div>
-            <div class="glass-card"><h3 style="margin-bottom:12px;font-size:15px">Novos Clientes por Mes</h3><div class="chart-canvas-container"><canvas id="chartClientes"></canvas></div></div>
+            <div class="glass-card"><h3 style="margin-bottom:10px;font-size:14px;font-weight:600">Cashback Gerado vs Resgatado</h3><div class="chart-canvas-container"><canvas id="chartCashback"></canvas></div></div>
+            <div class="glass-card"><h3 style="margin-bottom:10px;font-size:14px;font-weight:600">Novos Clientes por Mes</h3><div class="chart-canvas-container"><canvas id="chartClientes"></canvas></div></div>
           </div>
           <div class="glass-card"><div class="card-header"><h3 class="card-title">Ranking de Clientes</h3></div>
           <div class="table-wrapper"><table><thead><tr><th>#</th><th>NOME</th><th>TELEFONE</th><th>COMPRAS</th><th>TOTAL</th></tr></thead><tbody id="rankingList"></tbody></table></div></div>
@@ -341,26 +337,26 @@
 
         <!-- CONFIGURACOES -->
         <div class="page" id="page-config">
-          <div class="glass-card" style="padding:32px">
-            <h3 style="margin-bottom:16px">Cashback Mensal &mdash; <span id="configAno"></span></h3>
+          <div class="glass-card" style="padding:28px">
+            <h3 style="margin-bottom:14px;font-size:15px;font-weight:600">Cashback Mensal &mdash; <span id="configAno"></span></h3>
             <div class="config-grid" id="configGrid"></div>
-            <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
+            <div style="margin-top:14px;display:flex;align-items:center;gap:12px">
               <button class="btn btn-primary" onclick="salvarConfig()">Salvar</button>
-              <span id="configStatus" style="color:var(--success-dark);font-weight:600"></span>
+              <span id="configStatus" style="color:var(--success);font-weight:500;font-size:13px"></span>
             </div>
           </div>
-          <div class="glass-card" style="padding:32px;margin-top:24px">
-            <h3 style="margin-bottom:16px">Personalizar Farmacia</h3>
+          <div class="glass-card" style="padding:28px;margin-top:20px">
+            <h3 style="margin-bottom:14px;font-size:15px;font-weight:600">Personalizar Farmacia</h3>
             <div class="form-group"><label>Nome da Farmacia</label><input type="text" id="cfgFarmaciaNome"></div>
             <div class="form-row">
-              <div class="form-group"><label>Cor Primaria</label><input type="color" id="cfgCorPrimaria" style="height:48px"></div>
-              <div class="form-group"><label>Cor Secundaria</label><input type="color" id="cfgCorSecundaria" style="height:48px"></div>
+              <div class="form-group"><label>Cor Primaria</label><input type="color" id="cfgCorPrimaria" style="height:40px"></div>
+              <div class="form-group"><label>Cor Secundaria</label><input type="color" id="cfgCorSecundaria" style="height:40px"></div>
             </div>
             <div class="form-group"><label>Logo (URL)</label><input type="text" id="cfgLogo" placeholder="URL da logo ou deixe vazio"></div>
             <button class="btn btn-primary" onclick="salvarBranding()">Salvar Branding</button>
           </div>
-          <div class="glass-card" style="padding:32px;margin-top:24px">
-            <h3 style="margin-bottom:16px">Alterar Senha</h3>
+          <div class="glass-card" style="padding:28px;margin-top:20px">
+            <h3 style="margin-bottom:14px;font-size:15px;font-weight:600">Alterar Senha</h3>
             <div class="form-group"><label>Senha Atual</label><input type="password" id="cfgSenhaAtual"></div>
             <div class="form-row">
               <div class="form-group"><label>Nova Senha</label><input type="password" id="cfgSenha1"></div>
@@ -368,8 +364,8 @@
             </div>
             <button class="btn btn-primary" onclick="alterarSenha()">Alterar Senha</button>
           </div>
-          <div class="glass-card" style="padding:32px;margin-top:24px">
-            <h3 style="margin-bottom:16px">WhatsApp</h3>
+          <div class="glass-card" style="padding:28px;margin-top:20px">
+            <h3 style="margin-bottom:14px;font-size:15px;font-weight:600">WhatsApp</h3>
             <div class="form-group"><label>URL da API (Evolution)</label><input type="text" id="cfgWhatsappUrl" placeholder="https://api.example.com"></div>
             <div class="form-group"><label>Instancia</label><input type="text" id="cfgWhatsappInstance"></div>
             <div class="form-group"><label>Token</label><input type="password" id="cfgWhatsappToken"></div>
@@ -407,7 +403,7 @@
 
   <div class="modal-overlay" id="modalNovoUsuario"><div class="modal"><h3>Novo Usuario</h3><div class="form-group"><label>Nome</label><input type="text" id="novoUserNome" placeholder="Nome do funcionario"></div><div class="form-group"><label>Usuario</label><input type="text" id="novoUserUsername" placeholder="Ex: joao"></div><div class="form-group"><label>Senha</label><input type="password" id="novoUserSenha" placeholder="Minimo 6 caracteres"></div><div class="form-group"><label>Funcao</label><select id="novoUserRole"><option value="operador">Operador</option><option value="gerente">Gerente</option></select></div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal('modalNovoUsuario')">Cancelar</button><button class="btn btn-primary" onclick="criarUsuario()">Criar</button></div></div></div>
 
-  <div class="modal-overlay" id="modalNovaFarmacia"><div class="modal"><h3>Nova Farmacia</h3><div class="form-group"><label>Nome</label><input type="text" id="novaFarmNome" placeholder="Nome da farmacia"></div><div class="form-group"><label>Slug (URL)</label><input type="text" id="novaFarmSlug" placeholder="ex: minha-farmacia"></div><div class="form-row"><div class="form-group"><label>Cor Primaria</label><input type="color" id="novaFarmCor1" value="#667eea"></div><div class="form-group"><label>Cor Secundaria</label><input type="color" id="novaFarmCor2" value="#0c0c1d"></div></div><div class="form-group"><label>Usuario Admin</label><input type="text" id="novaFarmAdmin" value="admin"></div><div class="form-group"><label>Senha Admin</label><input type="password" id="novaFarmSenha" value="admin123"></div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal('modalNovaFarmacia')">Cancelar</button><button class="btn btn-primary" onclick="criarFarmacia()">Criar</button></div></div></div>
+  <div class="modal-overlay" id="modalNovaFarmacia"><div class="modal"><h3>Nova Farmacia</h3><div class="form-group"><label>Nome</label><input type="text" id="novaFarmNome" placeholder="Nome da farmacia"></div><div class="form-group"><label>Slug (URL)</label><input type="text" id="novaFarmSlug" placeholder="ex: minha-farmacia"></div><div class="form-row"><div class="form-group"><label>Cor Primaria</label><input type="color" id="novaFarmCor1" value="#2563eb"></div><div class="form-group"><label>Cor Secundaria</label><input type="color" id="novaFarmCor2" value="#1e293b"></div></div><div class="form-group"><label>Usuario Admin</label><input type="text" id="novaFarmAdmin" value="admin"></div><div class="form-group"><label>Senha Admin</label><input type="password" id="novaFarmSenha" value="admin123"></div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal('modalNovaFarmacia')">Cancelar</button><button class="btn btn-primary" onclick="criarFarmacia()">Criar</button></div></div></div>
 
   <div class="mobile-overlay" id="mobileOverlay" onclick="closeSidebar()"></div>
 
