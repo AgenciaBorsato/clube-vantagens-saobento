@@ -3,6 +3,20 @@
 -- Cada farmacia e um tenant isolado
 -- ============================================================
 
+-- Dropar tabelas antigas se existem (sem farmacia_id)
+-- Ordem reversa por causa das FKs
+DROP TABLE IF EXISTS auditoria CASCADE;
+DROP TABLE IF EXISTS login_tentativas CASCADE;
+DROP TABLE IF EXISTS resgates CASCADE;
+DROP TABLE IF EXISTS compras CASCADE;
+DROP TABLE IF EXISTS campanhas CASCADE;
+DROP TABLE IF EXISTS clientes CASCADE;
+DROP TABLE IF EXISTS cashback_mensal CASCADE;
+DROP TABLE IF EXISTS configuracoes CASCADE;
+DROP TABLE IF EXISTS usuarios CASCADE;
+DROP TABLE IF EXISTS super_admins CASCADE;
+DROP TABLE IF EXISTS farmacias CASCADE;
+
 -- Tabela principal: Farmacias (tenants)
 CREATE TABLE IF NOT EXISTS farmacias (
   id SERIAL PRIMARY KEY,
