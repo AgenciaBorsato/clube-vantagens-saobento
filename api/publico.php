@@ -44,6 +44,18 @@ if ($acao === 'consultar_saldo') {
         $nomePublico .= ' ' . substr(end($partes), 0, 1) . '.';
     }
 
+    // Info de expiracao
+    $limite = date('Y-m-d H:i:s', strtotime('-' . EXPIRACAO_MESES . ' months'));
+    $stmtExp = $db->prepare("SELECT MIN(data_compra) as mais_antiga FROM compras WHERE cliente_id = ? AND estornada = FALSE AND data_compra >= ?");
+    $stmtExp->execute([$cliente['id'], $limite]);
+    $maisAntiga = $stmtExp->fetch()['mais_antiga'];
+    $proximaExpiracao = $maisAntiga ? date('Y-m-d', strtotime($maisAntiga . ' + ' . EXPIRACAO_MESES . ' months')) : null;
+
+    // Campanhas ativas
+    $stmtCamp = $db->prepare("SELECT nome, bonus_percentual, data_fim FROM campanhas WHERE ativa = TRUE AND data_inicio <= CURRENT_DATE AND data_fim >= CURRENT_DATE ORDER BY bonus_percentual DESC");
+    $stmtCamp->execute();
+    $campanhasAtivas = $stmtCamp->fetchAll();
+
     jsonResponse([
         'sucesso' => true,
         'cliente' => [
@@ -66,6 +78,8 @@ if ($acao === 'consultar_saldo') {
             ];
         }, $ultimasCompras),
         'cashback_atual' => getCashbackAtual(),
+        'proxima_expiracao' => $proximaExpiracao,
+        'campanhas_ativas' => $campanhasAtivas,
     ]);
 }
 
@@ -80,6 +94,9 @@ if ($acao === 'autocadastro') {
     if (!validarCPF($cpf)) jsonResponse(['sucesso' => false, 'erro' => 'CPF invalido. Verifique os digitos.'], 400);
     if (strlen($telefone) < 10 || strlen($telefone) > 11) jsonResponse(['sucesso' => false, 'erro' => 'Telefone invalido. Use DDD + numero.'], 400);
 
+    $dataNasc = $input['data_nascimento'] ?? null;
+    if ($dataNasc && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataNasc)) $dataNasc = null;
+
     // Verificar duplicidade
     $stmt = $db->prepare("SELECT id FROM clientes WHERE (cpf = ? OR telefone = ?) AND ativo = TRUE");
     $stmt->execute([$cpf, $telefone]);
@@ -87,8 +104,8 @@ if ($acao === 'autocadastro') {
         jsonResponse(['sucesso' => false, 'erro' => 'CPF ou telefone ja cadastrado! Voce ja faz parte do clube. Consulte seu saldo acima.'], 400);
     }
 
-    $stmt = $db->prepare("INSERT INTO clientes (nome, cpf, telefone) VALUES (?, ?, ?) RETURNING id");
-    $stmt->execute([mb_convert_case($nome, MB_CASE_TITLE, 'UTF-8'), $cpf, $telefone]);
+    $stmt = $db->prepare("INSERT INTO clientes (nome, cpf, telefone, data_nascimento) VALUES (?, ?, ?, ?) RETURNING id");
+    $stmt->execute([mb_convert_case($nome, MB_CASE_TITLE, 'UTF-8'), $cpf, $telefone, $dataNasc]);
     $id = $stmt->fetch()['id'];
 
     registrarAuditoria('autocadastro', "Auto-cadastro: $nome (CPF: $cpf)", 'cliente', $id);

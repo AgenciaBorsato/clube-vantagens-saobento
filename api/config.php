@@ -18,7 +18,7 @@ if ($acao === 'listar') {
 }
 
 if ($acao === 'salvar') {
-    exigirLogin();
+    exigirGerente();
     verificarCSRF();
     $ano = intval($input['ano'] ?? date('Y'));
     $meses = $input['meses'] ?? [];

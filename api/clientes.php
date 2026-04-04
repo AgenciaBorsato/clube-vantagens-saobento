@@ -81,12 +81,15 @@ if ($acao === 'cadastrar') {
     if (!validarCPF($cpf)) jsonResponse(['sucesso' => false, 'erro' => 'CPF invalido. Verifique os digitos.'], 400);
     if (strlen($telefone) < 10) jsonResponse(['sucesso' => false, 'erro' => 'Telefone invalido'], 400);
 
+    $dataNasc = $input['data_nascimento'] ?? null;
+    if ($dataNasc && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataNasc)) $dataNasc = null;
+
     $stmt = $db->prepare("SELECT id FROM clientes WHERE (cpf = ? OR telefone = ?) AND ativo = TRUE");
     $stmt->execute([$cpf, $telefone]);
     if ($stmt->fetch()) jsonResponse(['sucesso' => false, 'erro' => 'CPF ou telefone ja cadastrado'], 400);
 
-    $stmt = $db->prepare("INSERT INTO clientes (nome, cpf, telefone) VALUES (?, ?, ?) RETURNING id");
-    $stmt->execute([$nome, $cpf, $telefone]);
+    $stmt = $db->prepare("INSERT INTO clientes (nome, cpf, telefone, data_nascimento) VALUES (?, ?, ?, ?) RETURNING id");
+    $stmt->execute([$nome, $cpf, $telefone, $dataNasc]);
     $id = $stmt->fetch()['id'];
     registrarAuditoria('cadastro_cliente', "Cliente '$nome' cadastrado (CPF: $cpf)", 'cliente', $id);
 
@@ -106,11 +109,14 @@ if ($acao === 'editar') {
     if (!$nome || !$cpf || !$telefone) jsonResponse(['sucesso' => false, 'erro' => 'Preencha todos os campos'], 400);
     if (!validarCPF($cpf)) jsonResponse(['sucesso' => false, 'erro' => 'CPF invalido. Verifique os digitos.'], 400);
 
+    $dataNasc = $input['data_nascimento'] ?? null;
+    if ($dataNasc && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataNasc)) $dataNasc = null;
+
     $stmt = $db->prepare("SELECT id FROM clientes WHERE (cpf = ? OR telefone = ?) AND ativo = TRUE AND id != ?");
     $stmt->execute([$cpf, $telefone, $id]);
     if ($stmt->fetch()) jsonResponse(['sucesso' => false, 'erro' => 'CPF ou telefone ja pertence a outro cliente'], 400);
 
-    $db->prepare("UPDATE clientes SET nome = ?, cpf = ?, telefone = ? WHERE id = ? AND ativo = TRUE")->execute([$nome, $cpf, $telefone, $id]);
+    $db->prepare("UPDATE clientes SET nome = ?, cpf = ?, telefone = ?, data_nascimento = ? WHERE id = ? AND ativo = TRUE")->execute([$nome, $cpf, $telefone, $dataNasc, $id]);
     registrarAuditoria('editar_cliente', "Cliente #$id atualizado: $nome", 'cliente', $id);
     jsonResponse(['sucesso' => true, 'mensagem' => 'Cliente atualizado com sucesso']);
 }
@@ -145,6 +151,7 @@ if ($acao === 'buscar_rapido') {
 }
 
 if ($acao === 'excluir') {
+    exigirGerente();
     verificarCSRF();
     $id = intval($input['id'] ?? 0);
     if (!$id) jsonResponse(['sucesso' => false, 'erro' => 'ID invalido'], 400);
@@ -157,6 +164,34 @@ if ($acao === 'excluir') {
         registrarAuditoria('excluir_cliente', "Cliente #$id '{$cl['nome']}' desativado", 'cliente', $id);
     }
     jsonResponse(['sucesso' => true, 'mensagem' => 'Cliente excluido']);
+}
+
+if ($acao === 'aniversariantes') {
+    $mes = intval($_GET['mes'] ?? date('n'));
+    $stmt = $db->prepare("
+        SELECT id, nome, cpf, telefone, data_nascimento,
+               EXTRACT(DAY FROM data_nascimento)::int as dia
+        FROM clientes
+        WHERE ativo = TRUE AND data_nascimento IS NOT NULL
+          AND EXTRACT(MONTH FROM data_nascimento) = ?
+        ORDER BY EXTRACT(DAY FROM data_nascimento)
+    ");
+    $stmt->execute([$mes]);
+    jsonResponse(['aniversariantes' => $stmt->fetchAll(), 'mes' => $mes]);
+}
+
+if ($acao === 'enviar_parabens') {
+    verificarCSRF();
+    $clienteId = intval($input['cliente_id'] ?? 0);
+    if (!$clienteId) jsonResponse(['sucesso' => false, 'erro' => 'Cliente invalido'], 400);
+    $stmt = $db->prepare("SELECT nome, telefone FROM clientes WHERE id = ? AND ativo = TRUE");
+    $stmt->execute([$clienteId]);
+    $cl = $stmt->fetch();
+    if (!$cl) jsonResponse(['sucesso' => false, 'erro' => 'Cliente nao encontrado'], 404);
+    $info = calcularCreditoCliente($clienteId);
+    $resultado = notificarAniversario($cl['telefone'], $cl['nome'], $info['credito_disponivel']);
+    registrarAuditoria('parabens_whatsapp', "Parabens enviado para {$cl['nome']}", 'cliente', $clienteId);
+    jsonResponse(['sucesso' => true, 'mensagem' => 'Mensagem de parabens enviada!', 'whatsapp' => $resultado]);
 }
 
 jsonResponse(['erro' => 'Acao invalida'], 400);

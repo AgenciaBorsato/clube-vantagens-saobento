@@ -20,9 +20,20 @@ if ($acao === 'registrar') {
     if (!$cliente) jsonResponse(['sucesso' => false, 'erro' => 'Cliente nao encontrado'], 404);
 
     $pct = getCashbackAtual();
+    $campanhaId = null;
+    $bonusPct = 0;
+    // Verificar campanha ativa
+    $stmtCamp = $db->prepare("SELECT id, bonus_percentual FROM campanhas WHERE ativa = TRUE AND data_inicio <= CURRENT_DATE AND data_fim >= CURRENT_DATE ORDER BY bonus_percentual DESC LIMIT 1");
+    $stmtCamp->execute();
+    $campanha = $stmtCamp->fetch();
+    if ($campanha) {
+        $bonusPct = floatval($campanha['bonus_percentual']);
+        $pct += $bonusPct;
+        $campanhaId = $campanha['id'];
+    }
     $cashbackValor = round($valor * ($pct / 100), 2);
-    $stmt = $db->prepare("INSERT INTO compras (cliente_id, valor, cashback_percentual, cashback_valor) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$cliente['id'], $valor, $pct, $cashbackValor]);
+    $stmt = $db->prepare("INSERT INTO compras (cliente_id, valor, cashback_percentual, cashback_valor, campanha_id) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$cliente['id'], $valor, $pct, $cashbackValor, $campanhaId]);
     registrarAuditoria('compra', "Compra R$ " . number_format($valor, 2, ',', '.') . " - Cashback R$ " . number_format($cashbackValor, 2, ',', '.'), 'cliente', $cliente['id']);
 
     // Notificar cliente via WhatsApp
@@ -41,11 +52,22 @@ if ($acao === 'preview') {
     $valor = floatval($input['valor'] ?? 0);
     if ($valor < 0.01) jsonResponse(['sucesso' => false, 'erro' => 'Valor invalido'], 400);
     $pct = getCashbackAtual();
+    $bonusPct = 0;
+    $campanhaNome = null;
+    $stmtCamp = $db->prepare("SELECT nome, bonus_percentual FROM campanhas WHERE ativa = TRUE AND data_inicio <= CURRENT_DATE AND data_fim >= CURRENT_DATE ORDER BY bonus_percentual DESC LIMIT 1");
+    $stmtCamp->execute();
+    $campanha = $stmtCamp->fetch();
+    if ($campanha) {
+        $bonusPct = floatval($campanha['bonus_percentual']);
+        $pct += $bonusPct;
+        $campanhaNome = $campanha['nome'];
+    }
     $cashbackValor = round($valor * ($pct / 100), 2);
-    jsonResponse(['sucesso' => true, 'valor' => $valor, 'cashback_percentual' => $pct, 'cashback_valor' => $cashbackValor]);
+    jsonResponse(['sucesso' => true, 'valor' => $valor, 'cashback_percentual' => $pct, 'cashback_valor' => $cashbackValor, 'bonus' => $bonusPct, 'campanha' => $campanhaNome]);
 }
 
 if ($acao === 'estornar') {
+    exigirGerente();
     verificarCSRF();
     $compraId = intval($input['compra_id'] ?? 0);
     $motivo = trim($input['motivo'] ?? 'Estorno administrativo');
@@ -202,7 +224,49 @@ if ($acao === 'ranking_clientes') {
     jsonResponse(['ranking' => $stmt->fetchAll()]);
 }
 
+if ($acao === 'relatorio_cashback_resgate') {
+    $ano = intval($_GET['ano'] ?? date('Y'));
+    $stmt = $db->prepare("
+        WITH cashback_mes AS (
+            SELECT EXTRACT(MONTH FROM data_compra)::int as mes, SUM(cashback_valor) as total
+            FROM compras WHERE EXTRACT(YEAR FROM data_compra) = ? AND estornada = FALSE
+            GROUP BY EXTRACT(MONTH FROM data_compra)
+        ),
+        resgate_mes AS (
+            SELECT EXTRACT(MONTH FROM data_resgate)::int as mes, SUM(valor) as total
+            FROM resgates WHERE EXTRACT(YEAR FROM data_resgate) = ? AND estornado = FALSE
+            GROUP BY EXTRACT(MONTH FROM data_resgate)
+        )
+        SELECT m.mes,
+               COALESCE(c.total, 0) as cashback,
+               COALESCE(r.total, 0) as resgatado
+        FROM generate_series(1,12) m(mes)
+        LEFT JOIN cashback_mes c ON c.mes = m.mes
+        LEFT JOIN resgate_mes r ON r.mes = m.mes
+        ORDER BY m.mes
+    ");
+    $stmt->execute([$ano, $ano]);
+    jsonResponse(['ano' => $ano, 'meses' => $stmt->fetchAll()]);
+}
+
+if ($acao === 'novos_clientes_mes') {
+    $ano = intval($_GET['ano'] ?? date('Y'));
+    $stmt = $db->prepare("
+        SELECT m.mes, COALESCE(c.total, 0) as novos
+        FROM generate_series(1,12) m(mes)
+        LEFT JOIN (
+            SELECT EXTRACT(MONTH FROM data_cadastro)::int as mes, COUNT(*) as total
+            FROM clientes WHERE EXTRACT(YEAR FROM data_cadastro) = ? AND ativo = TRUE
+            GROUP BY EXTRACT(MONTH FROM data_cadastro)
+        ) c ON c.mes = m.mes
+        ORDER BY m.mes
+    ");
+    $stmt->execute([$ano]);
+    jsonResponse(['ano' => $ano, 'meses' => $stmt->fetchAll()]);
+}
+
 if ($acao === 'exportar_clientes') {
+    exigirGerente();
     $clientes = $db->query("SELECT c.nome, c.cpf, c.telefone, c.data_cadastro FROM clientes c WHERE c.ativo = TRUE ORDER BY c.nome")->fetchAll();
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename=clientes_' . date('Y-m-d') . '.csv');
@@ -219,6 +283,7 @@ if ($acao === 'exportar_clientes') {
 }
 
 if ($acao === 'exportar_compras') {
+    exigirGerente();
     $stmt = $db->query("
         SELECT cl.nome, cl.telefone, c.valor, c.cashback_percentual, c.cashback_valor, c.data_compra,
                CASE WHEN c.estornada = TRUE THEN 'ESTORNADA' ELSE 'OK' END as status

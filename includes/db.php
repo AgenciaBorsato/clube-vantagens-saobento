@@ -93,6 +93,18 @@ function exigirLogin() {
     if (empty($_SESSION['logado']) || $_SESSION['logado'] !== true) {
         jsonResponse(['erro' => 'Acesso nao autorizado. Faca login novamente.'], 401);
     }
+    // Multi-user: exigir usuario_id na sessao
+    if (empty($_SESSION['usuario_id'])) {
+        session_destroy();
+        jsonResponse(['erro' => 'Sessao expirada. Faca login novamente.'], 401);
+    }
+}
+
+function exigirGerente() {
+    exigirLogin();
+    if (empty($_SESSION['usuario_role']) || $_SESSION['usuario_role'] !== 'gerente') {
+        jsonResponse(['erro' => 'Acesso restrito a gerentes'], 403);
+    }
 }
 
 function getClientIP() {
@@ -237,8 +249,9 @@ function calcularCreditoCliente($clienteId) {
 function registrarAuditoria($acao, $detalhes = '', $entidadeTipo = null, $entidadeId = null) {
     $db = getDB();
     $ip = getClientIP();
-    $stmt = $db->prepare("INSERT INTO auditoria (acao, detalhes, entidade_tipo, entidade_id, ip) VALUES (?, ?, ?, ?, ?)");
-    $stmt->execute([$acao, $detalhes, $entidadeTipo, $entidadeId, $ip]);
+    $usuarioId = $_SESSION['usuario_id'] ?? null;
+    $stmt = $db->prepare("INSERT INTO auditoria (acao, detalhes, entidade_tipo, entidade_id, ip, usuario_id) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$acao, $detalhes, $entidadeTipo, $entidadeId, $ip, $usuarioId]);
 }
 
 // ===== INICIALIZACAO =====
@@ -255,6 +268,13 @@ function inicializarBanco() {
     if ($stmt->fetch()['c'] == 0) {
         $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);
         $db->prepare("INSERT INTO configuracoes (chave, valor) VALUES ('senha_acesso', ?)")->execute([$hash]);
+    }
+
+    // Seed usuario admin se tabela usuarios estiver vazia
+    $stmt = $db->query("SELECT COUNT(*) as c FROM usuarios");
+    if ($stmt->fetch()['c'] == 0) {
+        $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);
+        $db->prepare("INSERT INTO usuarios (username, password_hash, nome, role) VALUES ('admin', ?, 'Administrador', 'gerente')")->execute([$hash]);
     }
 }
 inicializarBanco();

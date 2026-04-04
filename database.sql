@@ -80,3 +80,50 @@ CREATE TABLE IF NOT EXISTS auditoria (
 CREATE INDEX IF NOT EXISTS idx_auditoria_acao ON auditoria(acao);
 CREATE INDEX IF NOT EXISTS idx_auditoria_entidade ON auditoria(entidade_tipo, entidade_id);
 CREATE INDEX IF NOT EXISTS idx_auditoria_data ON auditoria(criado_em);
+
+-- ===== FEATURE 4: Multi-usuario =====
+CREATE TABLE IF NOT EXISTS usuarios (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  nome VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL DEFAULT 'operador' CHECK (role IN ('operador', 'gerente')),
+  ativo BOOLEAN DEFAULT TRUE,
+  criado_em TIMESTAMP DEFAULT NOW(),
+  ultimo_login TIMESTAMP NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usuarios_username ON usuarios(username);
+
+-- Adicionar usuario_id na auditoria (idempotente)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='auditoria' AND column_name='usuario_id') THEN
+    ALTER TABLE auditoria ADD COLUMN usuario_id INT NULL;
+  END IF;
+END $$;
+
+-- ===== FEATURE 2: Aniversariantes =====
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='data_nascimento') THEN
+    ALTER TABLE clientes ADD COLUMN data_nascimento DATE NULL;
+  END IF;
+END $$;
+
+-- ===== FEATURE 3: Campanhas promocionais =====
+CREATE TABLE IF NOT EXISTS campanhas (
+  id SERIAL PRIMARY KEY,
+  nome VARCHAR(255) NOT NULL,
+  data_inicio DATE NOT NULL,
+  data_fim DATE NOT NULL,
+  bonus_percentual DECIMAL(5,2) NOT NULL DEFAULT 0,
+  ativa BOOLEAN DEFAULT TRUE,
+  descricao TEXT NULL,
+  criado_em TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_campanhas_datas ON campanhas(data_inicio, data_fim);
+CREATE INDEX IF NOT EXISTS idx_campanhas_ativa ON campanhas(ativa);
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='compras' AND column_name='campanha_id') THEN
+    ALTER TABLE compras ADD COLUMN campanha_id INT NULL REFERENCES campanhas(id);
+  END IF;
+END $$;

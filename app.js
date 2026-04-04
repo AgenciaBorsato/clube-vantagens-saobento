@@ -1,6 +1,7 @@
 
 const MC=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 let csrfToken = '';
+let currentUser = null;
 
 async function api(ep, data=null) {
     const o = data ? {
@@ -43,12 +44,14 @@ function openModal(id){document.getElementById(id).classList.add('show');}
 function closeModal(id){document.getElementById(id).classList.remove('show');}
 
 async function doLogin(){
-    const r=await api('auth.php',{acao:'login',senha:document.getElementById('loginPassword').value});
+    const r=await api('auth.php',{acao:'login',username:document.getElementById('loginUser').value.trim(),senha:document.getElementById('loginPassword').value});
     if(r.sucesso){
         csrfToken = r.csrf_token || '';
+        currentUser = r.usuario;
         document.getElementById('loginPage').style.display='none';
         document.getElementById('app').style.display='block';
         sessionStorage.setItem('sb_logged','1');
+        setupPermissions();
         updateDashboard();
         updateDate();
     } else {
@@ -58,12 +61,23 @@ async function doLogin(){
         setTimeout(()=>e.style.display='none',4000);
     }
 }
+function setupPermissions(){
+    if(!currentUser)return;
+    const isGerente = currentUser.role === 'gerente';
+    document.getElementById('userGreeting').textContent = currentUser.nome;
+    document.querySelectorAll('[data-page="campanhas"],[data-page="usuarios"]').forEach(el => {
+        el.style.display = isGerente ? '' : 'none';
+    });
+    document.querySelectorAll('.gerente-only').forEach(el => {
+        el.style.display = isGerente ? '' : 'none';
+    });
+}
 function doLogout(){api('auth.php',{acao:'logout'});csrfToken='';sessionStorage.removeItem('sb_logged');document.getElementById('app').style.display='none';document.getElementById('loginPage').style.display='flex';document.getElementById('loginPassword').value='';}
 function showPublicPage(){document.getElementById('loginPage').style.display='none';document.getElementById('app').style.display='none';document.getElementById('publicPage').style.display='block';api('config.php?acao=listar').then(r=>{if(r.cashback_atual)document.getElementById('publicPct').textContent=r.cashback_atual+'%';});}
 function showLoginPage(){document.getElementById('publicPage').style.display='none';document.getElementById('app').style.display='none';document.getElementById('loginPage').style.display='flex';}
 
-const PT={dashboard:'Painel',cadastro:'Cadastrar Cliente',venda:'Registrar Compra',consulta:'Consultar Cliente',resgate:'Resgatar Cr\u00e9dito',clientes:'Todos os Clientes',relatorios:'Relat\u00f3rios',config:'Configura\u00e7\u00f5es'};
-function goTo(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));document.querySelector(`[data-page="${p}"]`)?.classList.add('active');document.getElementById('pageTitle').textContent=PT[p]||'';closeSidebar();if(p==='dashboard')updateDashboard();if(p==='clientes')renderClientes();if(p==='config')renderConfig();if(p==='relatorios')renderRelatorios();}
+const PT={dashboard:'Painel',cadastro:'Cadastrar Cliente',venda:'Registrar Compra',consulta:'Consultar Cliente',resgate:'Resgatar Cr\u00e9dito',clientes:'Todos os Clientes',relatorios:'Relat\u00f3rios',config:'Configura\u00e7\u00f5es',aniversariantes:'Anivers\u00e1rios do M\u00eas',campanhas:'Campanhas Promocionais',usuarios:'Gerenciar Usu\u00e1rios'};
+function goTo(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));document.querySelector(`[data-page="${p}"]`)?.classList.add('active');document.getElementById('pageTitle').textContent=PT[p]||'';closeSidebar();if(p==='dashboard')updateDashboard();if(p==='clientes')renderClientes();if(p==='config')renderConfig();if(p==='relatorios')renderRelatorios();if(p==='aniversariantes')renderAniversariantes();if(p==='campanhas')renderCampanhas();if(p==='usuarios')renderUsuarios();}
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('mobileOverlay').classList.toggle('show');}
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('mobileOverlay').classList.remove('show');}
 function updateDate(){document.getElementById('todayDate').textContent=new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});}
@@ -81,14 +95,39 @@ async function updateDashboard(){
   document.getElementById('recentPurchases').innerHTML=(u.compras||[]).map(c=>
     `<tr><td><strong>${c.nome}</strong></td><td>${fP(c.telefone)}</td><td><span class="badge badge-blue">${fM(+c.valor)}</span></td><td>${fM(+c.cashback_valor)} (${c.cashback_percentual}%)</td><td>${fD(c.data_compra)}</td></tr>`
   ).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:32px">Nenhuma compra</td></tr>';
+
+  // Campaign banner
+  const camp=await api('campanhas.php?acao=ativas');
+  const campDiv=document.getElementById('dashboardCampanha');
+  if(campDiv&&camp.campanhas&&camp.campanhas.length>0){
+    const c=camp.campanhas[0];
+    campDiv.innerHTML=`<h3>📣 ${c.nome}</h3><p>Cashback com <strong>+${c.bonus_percentual}% bonus</strong> ate ${fDS(c.data_fim)}</p>`;
+    campDiv.style.display='block';
+  } else if(campDiv) campDiv.style.display='none';
+
+  // Expiring credits
+  const exp=await api('notificacoes.php?acao=resumo_expiracoes');
+  const expDiv=document.getElementById('dashboardExpirando');
+  if(expDiv&&exp.total_clientes>0){
+    expDiv.innerHTML=`<h3>⚠️ Creditos Expirando</h3><p><strong>${exp.total_clientes}</strong> cliente(s) com creditos expirando nos proximos 7 dias (total: ${fM(+exp.total_valor)})</p><button class="btn btn-gold btn-sm" onclick="goTo('expirando')" style="margin-top:8px">Ver Detalhes</button>`;
+    expDiv.style.display='block';
+  } else if(expDiv) expDiv.style.display='none';
+
+  // Birthday widget
+  const aniv=await api('clientes.php?acao=aniversariantes&mes='+(new Date().getMonth()+1));
+  const anivDiv=document.getElementById('dashboardAniv');
+  if(anivDiv&&aniv.aniversariantes&&aniv.aniversariantes.length>0){
+    anivDiv.innerHTML=`<h3>🎂 Aniversariantes do Mes</h3><p><strong>${aniv.aniversariantes.length}</strong> cliente(s) fazem aniversario este mes</p><button class="btn btn-secondary btn-sm" onclick="goTo('aniversariantes')" style="margin-top:8px">Ver Todos</button>`;
+    anivDiv.style.display='block';
+  } else if(anivDiv) anivDiv.style.display='none';
 }
 
-async function cadastrarCliente(){const r=await api('clientes.php',{acao:'cadastrar',nome:document.getElementById('cadNome').value.trim(),cpf:document.getElementById('cadCPF').value,telefone:document.getElementById('cadTel').value});if(r.sucesso){toast(r.mensagem);['cadNome','cadCPF','cadTel'].forEach(x=>document.getElementById(x).value='');}else toast(r.erro,'error');}
+async function cadastrarCliente(){const r=await api('clientes.php',{acao:'cadastrar',nome:document.getElementById('cadNome').value.trim(),cpf:document.getElementById('cadCPF').value,telefone:document.getElementById('cadTel').value,data_nascimento:document.getElementById('cadNascimento').value||null});if(r.sucesso){toast(r.mensagem);['cadNome','cadCPF','cadTel','cadNascimento'].forEach(x=>document.getElementById(x).value='');}else toast(r.erro,'error');}
 
 let vendaCl=null;
 async function buscarVenda(){const r=await api('clientes.php',{acao:'buscar',termo:cl(document.getElementById('vendaTel').value)});if(!r.sucesso){toast(r.erro,'error');document.getElementById('vendaInfo').classList.remove('show');vendaCl=null;return;}vendaCl=r.cliente;document.getElementById('vendaData').innerHTML=`<div class="customer-info-item"><label>Nome</label><span>${r.cliente.nome}</span></div><div class="customer-info-item"><label>CPF</label><span>${fC(r.cliente.cpf)}</span></div><div class="customer-info-item"><label>Telefone</label><span>${fP(r.cliente.telefone)}</span></div><div class="customer-info-item"><label>Total</label><span>${fM(r.cliente.total_compras)}</span></div><div class="customer-info-item"><label>Cr\u00e9dito</label><span style="color:var(--gold-500)">${fM(r.cliente.credito_disponivel)}</span></div>`;document.getElementById('vendaInfo').classList.add('show');document.getElementById('vendaValor').value='';document.getElementById('vendaValor').focus();}
 
-async function confirmarCompra(){if(!vendaCl)return;const v=parseM(document.getElementById('vendaValor').value);if(v<0.01){toast('Valor inv\u00e1lido!','error');return;}const p=await api('compras.php',{acao:'preview',valor:v});if(!p.sucesso){toast(p.erro,'error');return;}document.getElementById('modalCompraBody').innerHTML=`<p>Cliente: <strong>${vendaCl.nome}</strong></p><div class="preview-box"><div class="pv-lbl">Valor da Compra</div><div class="pv-val">${fM(v)}</div></div><div class="preview-box" style="background:var(--gold-200);border-color:var(--gold-500)"><div class="pv-lbl">Cashback que ser\u00e1 gerado</div><div class="pv-val" style="color:var(--gold-500)">${fM(p.cashback_valor)} (${p.cashback_percentual}%)</div></div>`;openModal('modalConfirmarCompra');}
+async function confirmarCompra(){if(!vendaCl)return;const v=parseM(document.getElementById('vendaValor').value);if(v<0.01){toast('Valor inv\u00e1lido!','error');return;}const p=await api('compras.php',{acao:'preview',valor:v});if(!p.sucesso){toast(p.erro,'error');return;}let campanhaHtml=p.campanha?`<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--gold-500)">📣 Campanha: <strong>${p.campanha}</strong> (+${p.bonus}% bonus)</div>`:'';document.getElementById('modalCompraBody').innerHTML=`<p>Cliente: <strong>${vendaCl.nome}</strong></p><div class="preview-box"><div class="pv-lbl">Valor da Compra</div><div class="pv-val">${fM(v)}</div></div><div class="preview-box" style="background:var(--gold-200);border-color:var(--gold-500)"><div class="pv-lbl">Cashback que ser\u00e1 gerado</div><div class="pv-val" style="color:var(--gold-500)">${fM(p.cashback_valor)} (${p.cashback_percentual}%)</div></div>${campanhaHtml}`;openModal('modalConfirmarCompra');}
 
 async function executarCompra(){closeModal('modalConfirmarCompra');const v=parseM(document.getElementById('vendaValor').value);const r=await api('compras.php',{acao:'registrar',telefone:vendaCl.telefone,valor:v});if(r.sucesso){toast(`Compra de ${fM(v)} registrada! Cashback: ${fM(r.compra.cashback_valor)}`);document.getElementById('vendaTel').value='';document.getElementById('vendaValor').value='';document.getElementById('vendaInfo').classList.remove('show');vendaCl=null;}else toast(r.erro,'error');}
 
@@ -107,24 +146,40 @@ function realizarResgate(){if(!resgateCl)return;resgateValP=parseM(document.getE
 async function confirmarResgate(){const r=await api('resgates.php',{acao:'resgatar',cliente_id:resgateCl.id,valor:resgateValP});closeModal('modalResgate');if(r.sucesso){toast(`Resgate de ${fM(resgateValP)} realizado!`);document.getElementById('resgateTel').value='';document.getElementById('resgateValor').value='';document.getElementById('resgateInfo').classList.remove('show');resgateCl=null;}else toast(r.erro,'error');}
 
 let filtroTO;
-async function renderClientes(b=''){const r=await api('clientes.php?acao=listar&busca='+encodeURIComponent(b));document.getElementById('totalBadge').textContent=(r.total||0)+' clientes';document.getElementById('clientesList').innerHTML=(r.clientes||[]).map(c=>`<tr><td><strong>${c.nome}</strong></td><td>${fC(c.cpf)}</td><td>${fP(c.telefone)}</td><td>${fM(c.total_compras)}</td><td><span class="badge badge-gold">${fM(c.credito_disponivel)}</span></td><td><button class="btn btn-secondary btn-xs" onclick="consultarDireto('${c.telefone}')" style="margin:2px">Ver</button><button class="btn btn-secondary btn-xs" onclick="editarCliente(${c.id},'${c.nome}','${c.cpf}','${c.telefone}')" style="margin:2px">Editar</button><button class="btn btn-danger btn-xs" onclick="excluirCliente(${c.id},'${c.nome}')" style="margin:2px">Excluir</button></td></tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">Nenhum cliente</td></tr>';}
+async function renderClientes(b=''){const r=await api('clientes.php?acao=listar&busca='+encodeURIComponent(b));document.getElementById('totalBadge').textContent=(r.total||0)+' clientes';document.getElementById('clientesList').innerHTML=(r.clientes||[]).map(c=>`<tr><td><strong>${c.nome}</strong></td><td>${fC(c.cpf)}</td><td>${fP(c.telefone)}</td><td>${fM(c.total_compras)}</td><td><span class="badge badge-gold">${fM(c.credito_disponivel)}</span></td><td><button class="btn btn-secondary btn-xs" onclick="consultarDireto('${c.telefone}')" style="margin:2px">Ver</button><button class="btn btn-secondary btn-xs" onclick="editarCliente(${c.id},'${c.nome}','${c.cpf}','${c.telefone}','${c.data_nascimento||''}')" style="margin:2px">Editar</button><button class="btn btn-danger btn-xs" onclick="excluirCliente(${c.id},'${c.nome}')" style="margin:2px">Excluir</button></td></tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">Nenhum cliente</td></tr>';}
 function filtrarClientes(){clearTimeout(filtroTO);filtroTO=setTimeout(()=>renderClientes(document.getElementById('clientesSearch').value),300);}
 function consultarDireto(t){goTo('consulta');document.getElementById('consultaBusca').value=t;consultarCliente();}
 function exportarCSV(tipo){window.open('api/compras.php?acao=exportar_'+tipo,'_blank');}
 
 let editId=0;
-function editarCliente(id,nome,cpf,tel){editId=id;document.getElementById('editNome').value=nome;document.getElementById('editCPF').value=fC(cpf);document.getElementById('editTel').value=fP(tel);openModal('modalEditar');}
-async function salvarEdicao(){const r=await api('clientes.php',{acao:'editar',id:editId,nome:document.getElementById('editNome').value.trim(),cpf:document.getElementById('editCPF').value,telefone:document.getElementById('editTel').value});closeModal('modalEditar');if(r.sucesso){toast(r.mensagem);renderClientes();}else toast(r.erro,'error');}
+function editarCliente(id,nome,cpf,tel,nasc){editId=id;document.getElementById('editNome').value=nome;document.getElementById('editCPF').value=fC(cpf);document.getElementById('editTel').value=fP(tel);document.getElementById('editNascimento').value=nasc||'';openModal('modalEditar');}
+async function salvarEdicao(){const r=await api('clientes.php',{acao:'editar',id:editId,nome:document.getElementById('editNome').value.trim(),cpf:document.getElementById('editCPF').value,telefone:document.getElementById('editTel').value,data_nascimento:document.getElementById('editNascimento').value||null});closeModal('modalEditar');if(r.sucesso){toast(r.mensagem);renderClientes();}else toast(r.erro,'error');}
 
 let excluirId=0;
 function excluirCliente(id,nome){excluirId=id;document.getElementById('modalExcluirText').innerHTML=`Excluir <strong>${nome}</strong>?`;openModal('modalExcluir');}
 async function confirmarExcluir(){await api('clientes.php',{acao:'excluir',id:excluirId});closeModal('modalExcluir');toast('Exclu\u00eddo.');renderClientes();}
 
+let chartVendasInst,chartCashbackInst,chartClientesInst;
 async function renderRelatorios(){
   const ano=new Date().getFullYear();document.getElementById('chartAno').textContent=ano;
   const r=await api('compras.php?acao=relatorio_mensal&ano='+ano);
-  const maxV=Math.max(...(r.meses||[]).map(m=>m.total_vendas),1);
-  document.getElementById('chartBars').innerHTML=(r.meses||[]).map(m=>{const h=Math.max(4,Math.round((m.total_vendas/maxV)*100));return`<div class="chart-bar"><div class="bar-value">${m.total_vendas>0?fM(m.total_vendas):''}</div><div class="bar" style="height:${h}%" title="${MC[m.mes-1]}: ${fM(m.total_vendas)}"></div><div class="bar-label">${MC[m.mes-1]}</div></div>`;}).join('');
+  const labels=MC;
+  const vendas=(r.meses||[]).map(m=>m.total_vendas);
+
+  if(chartVendasInst)chartVendasInst.destroy();
+  chartVendasInst=new Chart(document.getElementById('chartVendas'),{type:'bar',data:{labels,datasets:[{label:'Vendas (R$)',data:vendas,backgroundColor:'rgba(33,150,243,0.7)',borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fM(v)}}}}});
+
+  const rc=await api('compras.php?acao=relatorio_cashback_resgate&ano='+ano);
+  const cashbackData=(rc.meses||[]).map(m=>+m.cashback);
+  const resgateData=(rc.meses||[]).map(m=>+m.resgatado);
+  if(chartCashbackInst)chartCashbackInst.destroy();
+  chartCashbackInst=new Chart(document.getElementById('chartCashback'),{type:'bar',data:{labels,datasets:[{label:'Gerado',data:cashbackData,backgroundColor:'rgba(39,184,128,0.7)',borderRadius:4},{label:'Resgatado',data:resgateData,backgroundColor:'rgba(212,168,83,0.7)',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{ticks:{callback:v=>fM(v)}}}}});
+
+  const nc=await api('compras.php?acao=novos_clientes_mes&ano='+ano);
+  const novosData=(nc.meses||[]).map(m=>+m.novos);
+  if(chartClientesInst)chartClientesInst.destroy();
+  chartClientesInst=new Chart(document.getElementById('chartClientes'),{type:'bar',data:{labels,datasets:[{label:'Novos Clientes',data:novosData,backgroundColor:'rgba(33,150,243,0.5)',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{stepSize:1}}}}});
+
   const rk=await api('compras.php?acao=ranking_clientes&limite=20');
   document.getElementById('rankingList').innerHTML=(rk.ranking||[]).map((c,i)=>`<tr><td><strong>${i+1}\u00ba</strong></td><td>${c.nome}</td><td>${fP(c.telefone)}</td><td>${c.num_compras}</td><td><span class="badge badge-blue">${fM(+c.total_compras)}</span></td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Nenhum dado</td></tr>';
 }
@@ -165,6 +220,16 @@ async function consultarSaldoPublico(){
         hist+=r.ultimas_compras.map(c=>`<div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--blue-50);border-radius:6px;margin-bottom:4px;font-size:13px"><span>${fDS(c.data)}</span><span>${fM(c.valor)}</span><span style="color:var(--gold-500);font-weight:600">+${fM(c.cashback)}</span></div>`).join('');
     }
     document.getElementById('publicUltimasCompras').innerHTML=hist;
+    // Expiration warning
+    if(r.proxima_expiracao){
+        const expDiv=document.getElementById('publicExpiracao');
+        if(expDiv){expDiv.querySelector('#publicExpData').textContent=fDS(r.proxima_expiracao);expDiv.style.display='block';}
+    }
+    // Campaign banners
+    if(r.campanhas_ativas&&r.campanhas_ativas.length>0){
+        const cb=document.getElementById('publicCampanhasBanner');
+        if(cb){cb.innerHTML=r.campanhas_ativas.map(c=>`<div style="margin-bottom:8px"><strong>📣 ${c.nome}</strong> — Cashback com +${c.bonus_percentual}% bonus ate ${fDS(c.data_fim)}</div>`).join('');cb.style.display='block';}
+    }
     document.getElementById('publicSaldoResult').style.display='block';
     if(r.cashback_atual) document.getElementById('publicPct').textContent=r.cashback_atual+'%';
 }
@@ -176,14 +241,14 @@ async function autoCadastro(){
     const telefone=document.getElementById('pubTel').value;
     const msg=document.getElementById('pubCadastroMsg');
 
-    const r = await fetch('api/publico.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao:'autocadastro',nome,cpf,telefone})}).then(x=>x.json()).catch(()=>({sucesso:false,erro:'Erro de conexao'}));
+    const r = await fetch('api/publico.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao:'autocadastro',nome,cpf,telefone,data_nascimento:document.getElementById('pubNascimento').value||null})}).then(x=>x.json()).catch(()=>({sucesso:false,erro:'Erro de conexao'}));
 
     msg.style.display='block';
     if(r.sucesso){
         msg.style.background='var(--green-100)';
         msg.style.color='var(--green-500)';
         msg.innerHTML='<strong>\u2713 '+r.mensagem+'</strong><br>Cashback atual: '+r.cashback_atual+'%';
-        ['pubNome','pubCPF','pubTel'].forEach(x=>document.getElementById(x).value='');
+        ['pubNome','pubCPF','pubTel','pubNascimento'].forEach(x=>document.getElementById(x).value='');
     } else {
         msg.style.background='var(--red-100)';
         msg.style.color='var(--red-500)';
@@ -228,14 +293,62 @@ document.addEventListener('click',function(e){
     }
 });
 
+// ===== ANIVERSARIANTES =====
+let anivMes=new Date().getMonth()+1;
+function mesAniversario(delta){anivMes+=delta;if(anivMes<1)anivMes=12;if(anivMes>12)anivMes=1;renderAniversariantes();}
+async function renderAniversariantes(){
+  document.getElementById('anivMesLabel').textContent=MC[anivMes-1];
+  const r=await api('clientes.php?acao=aniversariantes&mes='+anivMes);
+  document.getElementById('anivList').innerHTML=(r.aniversariantes||[]).map(c=>`<tr><td><strong>${c.dia}</strong></td><td>${c.nome}</td><td>${fP(c.telefone)}</td><td>${fDS(c.data_nascimento)}</td><td><button class="btn btn-gold btn-xs" onclick="enviarParabens(${c.id})">🎂 Parabens</button></td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px">Nenhum aniversariante</td></tr>';
+}
+async function enviarParabens(id){const r=await api('clientes.php',{acao:'enviar_parabens',cliente_id:id});if(r.sucesso)toast(r.mensagem);else toast(r.erro,'error');}
+
+// ===== CAMPANHAS =====
+async function renderCampanhas(){
+  const r=await api('campanhas.php',{acao:'listar'});
+  document.getElementById('campanhasList').innerHTML=(r.campanhas||[]).map(c=>{
+    const ativa=c.ativa&&c.data_inicio<=new Date().toISOString().slice(0,10)&&c.data_fim>=new Date().toISOString().slice(0,10);
+    const statusBadge=c.ativa?(ativa?'<span class="badge badge-green">Ativa</span>':'<span class="badge badge-blue">Agendada</span>'):'<span class="badge badge-red">Inativa</span>';
+    return`<tr><td><strong>${c.nome}</strong>${c.descricao?'<br><small style="color:var(--text-muted)">'+c.descricao+'</small>':''}</td><td>${fDS(c.data_inicio)} - ${fDS(c.data_fim)}</td><td><span class="badge badge-gold">+${c.bonus_percentual}%</span></td><td>${statusBadge}</td><td><button class="btn btn-secondary btn-xs" onclick="toggleCampanha(${c.id})" style="margin:2px">${c.ativa?'Desativar':'Ativar'}</button></td></tr>`;
+  }).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px">Nenhuma campanha</td></tr>';
+}
+async function criarCampanha(){
+  const r=await api('campanhas.php',{acao:'criar',nome:document.getElementById('campNome').value.trim(),data_inicio:document.getElementById('campInicio').value,data_fim:document.getElementById('campFim').value,bonus_percentual:parseFloat(document.getElementById('campBonus').value)||0,descricao:document.getElementById('campDesc').value.trim()});
+  closeModal('modalNovaCampanha');
+  if(r.sucesso){toast(r.mensagem);renderCampanhas();['campNome','campInicio','campFim','campBonus','campDesc'].forEach(x=>document.getElementById(x).value='');}else toast(r.erro,'error');
+}
+async function toggleCampanha(id){const r=await api('campanhas.php',{acao:'toggle',id});if(r.sucesso){toast(r.mensagem);renderCampanhas();}else toast(r.erro,'error');}
+
+// ===== USUARIOS =====
+async function renderUsuarios(){
+  const r=await api('auth.php',{acao:'listar_usuarios'});
+  document.getElementById('usuariosList').innerHTML=(r.usuarios||[]).map(u=>`<tr><td><strong>${u.nome}</strong></td><td>${u.username}</td><td><span class="role-badge role-${u.role}">${u.role}</span></td><td>${u.ativo?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-red">Inativo</span>'}</td><td>${u.ultimo_login?fD(u.ultimo_login):'\u2014'}</td><td><button class="btn btn-secondary btn-xs" onclick="editarUsuarioPrompt(${u.id},'${u.nome}','${u.role}',${u.ativo})" style="margin:2px">Editar</button><button class="btn btn-danger btn-xs" onclick="resetarSenhaPrompt(${u.id},'${u.nome}')" style="margin:2px">Reset Senha</button></td></tr>`).join('');
+}
+async function criarUsuario(){
+  const r=await api('auth.php',{acao:'criar_usuario',nome:document.getElementById('novoUserNome').value.trim(),username:document.getElementById('novoUserUsername').value.trim(),senha:document.getElementById('novoUserSenha').value,role:document.getElementById('novoUserRole').value});
+  closeModal('modalNovoUsuario');
+  if(r.sucesso){toast(r.mensagem);renderUsuarios();['novoUserNome','novoUserUsername','novoUserSenha'].forEach(x=>document.getElementById(x).value='');}else toast(r.erro,'error');
+}
+function editarUsuarioPrompt(id,nome,role,ativo){
+  const novoNome=prompt('Nome:',nome);if(!novoNome)return;
+  const novoRole=prompt('Funcao (operador/gerente):',role);if(!novoRole)return;
+  const novoAtivo=confirm('Usuario ativo?');
+  api('auth.php',{acao:'editar_usuario',id,nome:novoNome,role:novoRole,ativo:novoAtivo}).then(r=>{if(r.sucesso){toast(r.mensagem);renderUsuarios();}else toast(r.erro,'error');});
+}
+function resetarSenhaPrompt(id,nome){
+  const senha=prompt('Nova senha para '+nome+':');if(!senha)return;
+  api('auth.php',{acao:'resetar_senha_usuario',id,nova_senha:senha}).then(r=>{if(r.sucesso)toast(r.mensagem);else toast(r.erro,'error');});
+}
+
 (async function(){
-    // Verificar sessao existente e obter CSRF token
     if(sessionStorage.getItem('sb_logged')==='1'){
         const r = await api('auth.php',{acao:'verificar'});
         if(r.logado){
             csrfToken = r.csrf_token || '';
+            currentUser = r.usuario;
             document.getElementById('loginPage').style.display='none';
             document.getElementById('app').style.display='block';
+            setupPermissions();
             updateDashboard();
             updateDate();
         } else {

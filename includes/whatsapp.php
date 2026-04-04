@@ -112,3 +112,30 @@ function notificarBoasVindas($telefone, $nomeCliente, $cashbackAtual) {
 
     return enviarWhatsApp($telefone, $mensagem);
 }
+
+function notificarAniversario($telefone, $nomeCliente, $creditoDisponivel) {
+    $nome = explode(' ', trim($nomeCliente))[0];
+    $creditoFmt = number_format($creditoDisponivel, 2, ',', '.');
+
+    $mensagem = "Feliz aniversario, {$nome}! 🎂🎉\n\n"
+        . "A *Drogaria Sao Bento* deseja a voce um dia muito especial!\n\n"
+        . "💰 Seu credito disponivel: *R\$ {$creditoFmt}*\n\n"
+        . "Venha nos visitar e aproveite seu cashback! 🎁\n"
+        . "_Drogaria Sao Bento - Clube de Vantagens_";
+
+    return enviarWhatsApp($telefone, $mensagem);
+}
+
+function notificarCreditoExpirando($telefone, $nomeCliente, $valorExpirando, $dataExpiracao) {
+    $nome = explode(' ', trim($nomeCliente))[0];
+    $valorFmt = number_format($valorExpirando, 2, ',', '.');
+
+    $mensagem = "Ola, {$nome}! ⚠️\n\n"
+        . "Seus creditos no *Clube de Vantagens* estao prestes a expirar!\n\n"
+        . "💰 Credito disponivel: *R\$ {$valorFmt}*\n"
+        . "📅 Expira em: *{$dataExpiracao}*\n\n"
+        . "Nao perca! Venha usar seu cashback antes que expire! 🏥\n"
+        . "_Drogaria Sao Bento - Clube de Vantagens_";
+
+    return enviarWhatsApp($telefone, $mensagem);
+}
