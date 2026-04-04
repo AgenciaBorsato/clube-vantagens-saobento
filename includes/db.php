@@ -248,12 +248,9 @@ function inicializarBanco() {
     $inicializado = true;
 
     $db = getDB();
-    try {
-        $db->query("SELECT 1 FROM configuracoes LIMIT 1");
-    } catch (PDOException $e) {
-        $sql = file_get_contents(__DIR__ . '/../database.sql');
-        $db->exec($sql);
-    }
+    // Sempre executa o SQL (idempotente com IF NOT EXISTS)
+    $sql = file_get_contents(__DIR__ . '/../database.sql');
+    $db->exec($sql);
     $stmt = $db->query("SELECT COUNT(*) as c FROM configuracoes WHERE chave = 'senha_acesso'");
     if ($stmt->fetch()['c'] == 0) {
         $hash = password_hash(SENHA_PADRAO, PASSWORD_DEFAULT);
